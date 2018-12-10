@@ -1,5 +1,4 @@
 """ Training Script """
-
 import argparse
 import distutils.util
 import os

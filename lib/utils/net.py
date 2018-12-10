@@ -10,7 +10,7 @@ from core.config import cfg
 import nn as mynn
 
 logger = logging.getLogger(__name__)
-
+#logger = logging.setup_logging(__name__)
 
 def smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights, beta=1.0):
     """

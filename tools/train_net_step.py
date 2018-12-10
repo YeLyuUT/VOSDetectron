@@ -1,5 +1,4 @@
 """ Training script for steps_with_decay policy"""
-
 import argparse
 import os
 import sys
