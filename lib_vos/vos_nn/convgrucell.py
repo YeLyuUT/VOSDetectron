@@ -20,13 +20,16 @@ class ConvGRUCell2d(nn.Module):
   groups: same as 2D convolution.
   use_GN: if True, use group norm. else use bias.
   """
-  def __init__(self,i_channels,h_channels,kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,num_groups = 32):
+  def __init__(self,i_channels,h_channels,kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32):
     super().__init__()
     self.use_GN = use_GN
     self.i_channels = i_channels
     self.h_channels = h_channels
     self.kernel_size = kernel_size
-    self.num_groups = num_groups
+    self.stride=stride
+    self.dilation=dilation
+    self.groups=groups
+    self.GN_groups = GN_groups
 
     padding=kernel_size//2
     #update gate
@@ -47,9 +50,9 @@ class ConvGRUCell2d(nn.Module):
       self.br = nn.Parameter(torch.Tensor(h_channels))
       self.bh = nn.Parameter(torch.Tensor(h_channels))
     else:
-      self.bz = nn.GroupNorm(num_groups,h_channels)
-      self.br = nn.GroupNorm(num_groups,h_channels)
-      self.bh = nn.GroupNorm(num_groups,h_channels)
+      self.bz = nn.GroupNorm(GN_groups,h_channels)
+      self.br = nn.GroupNorm(GN_groups,h_channels)
+      self.bh = nn.GroupNorm(GN_groups,h_channels)
 
     self._init_weights()
 
@@ -96,6 +99,6 @@ class ConvGRUCell2d(nn.Module):
     self.i_channels = i_channels
     self.h_channels = h_channels
     self.kernel_size = kernel_size
-    self.num_groups = num_groups
-    return 'i_channels={}, h_channels={}, kernel_size={}, use_GN={}, num_groups={}'.format(
-        self.i_channels, self.h_channels, self.kernel_size, self.use_GN, self.num_groups)
+    self.GN_groups = GN_groups
+    return 'i_channels={}, h_channels={}, kernel_size={}, use_GN={}, GN_groups={}'.format(
+        self.i_channels, self.h_channels, self.kernel_size, self.use_GN, self.GN_groups)

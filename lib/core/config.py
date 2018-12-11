@@ -906,8 +906,16 @@ __C.RESNETS.USE_GN = False
 # ---------------------------------------------------------------------------- #
 # LSTM options
 # ---------------------------------------------------------------------------- #
-__C.HIDDEN_STATES = 1024
-__C.???
+__C.CONVGRU = AttrDict()
+__C.CONVGRU.HIDDEN_STATE_CHANNELS = 1024
+# Convolutional settings
+__C.CONVGRU.KERNEL_SIZE = 3
+__C.CONVGRU.STRIDE = 1
+__C.CONVGRU.DILATION = 1
+__C.CONVGRU.GROUPS = 1
+# Use group normalization if USE_GN is True, else use bias term for ConvGRU
+__C.CONVGRU.USE_GN = True
+__C.CONVGRU.NUM_GROUPS = 32
 
 # ---------------------------------------------------------------------------- #
 # GroupNorm options

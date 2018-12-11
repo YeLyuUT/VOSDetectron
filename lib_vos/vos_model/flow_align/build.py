@@ -5,8 +5,8 @@ from torch.utils.ffi import create_extension
 
 #this_file = os.path.dirname(__file__)
 
-sources = ['src/flow_align.c']
-headers = ['src/flow_align.h']
+sources = []#['src/flow_align_cuda.c']
+headers = []#['src/flow_align_cuda.h']
 defines = []
 with_cuda = False
 
@@ -16,6 +16,9 @@ if torch.cuda.is_available():
     headers += ['src/flow_align_cuda.h']
     defines += [('WITH_CUDA', None)]
     with_cuda = True
+else:
+    #only cuda version is implemented.
+    raise NotImplementedError()
 
 this_file = os.path.dirname(os.path.realpath(__file__))
 print(this_file)
