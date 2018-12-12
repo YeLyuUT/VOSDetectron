@@ -915,7 +915,7 @@ __C.CONVGRU.DILATION = 1
 __C.CONVGRU.GROUPS = 1
 # Use group normalization if USE_GN is True, else use bias term for ConvGRU
 __C.CONVGRU.USE_GN = True
-__C.CONVGRU.NUM_GROUPS = 32
+__C.CONVGRU.GN_GROUPS = 32
 
 # ---------------------------------------------------------------------------- #
 # GroupNorm options
