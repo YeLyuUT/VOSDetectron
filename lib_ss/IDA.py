@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
 import nn as mynn
+from .config import cfg as SS_config
 
 DEBUG = True
 
@@ -64,16 +65,16 @@ class IDA(nn.Module):
   """ IDA module for semantic segmentation.
   
   
-  
   """
   def __init__(self,conv_body_func,IDA_gating = False):
     super(IDA,self).__init__()
     self.IDA_gating = IDA_gating
-    
     self._init_weights()
     self.conv_body = conv_body_func()
+    self.conv_level1 = IDA_level(SS_config.LEVEL0.out_dims,SS_config.LEVEL1.out_dims)
+    self.conv_level2 = IDA_level(SS_config.LEVEL1.out_dims,SS_config.LEVEL2.out_dims)
+    self.conv_level3 = IDA_level(SS_config.LEVEL2.out_dims,SS_config.LEVEL3.out_dims)
     
-  
   def _init_weights(self):
     def init_func(m):
       if isinstance(m,nn.Conv2d):
