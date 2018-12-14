@@ -18,7 +18,7 @@ class DAVIS_imdb(vos_imdb):
     self.split = split
 
     cfg = 
-
+    
 
 
 
