@@ -5,13 +5,13 @@
 extern "C"{
 #endif
 
-__global__ void FlowAlignForward_kernel(const int nthreads, int height, int width, int channels, const float* bottom, const float* flow,float* top);
+__global__ void FlowAlignForward_kernel(const int nthreads,const  int height, const int width, const int channels, const float* bottom, const float* flow,float* top);
 
-int FlowAlignForward(const int batches, int height, int width, int channels, const float* bottom, const float* flow,float* top, cudaStream_t stream);
+int FlowAlignForward(const int batches,const  int height,const  int width,const  int channels, const float* bottom, const float* flow,float* top, cudaStream_t stream);
 
-__global__ void FlowAlignBackward_kernel(const int nthreads, int height, int width, int channels, const float* topdiff,const float*flow, float* bottomdiff);
+__global__ void FlowAlignBackward_kernel(const int nthreads, const int height, const int width, const int channels, const float* topdiff, const float*bottom,const float*flow, float* bottomdiff, float* flowdiff);
 
-int FlowAlignBackward(const int batches, int height, int width, int channels, const float* topdiff,const float*flow, float* bottomdiff, cudaStream_t stream);
+int FlowAlignBackward(const int batches, const int height, const int width, const int channels, const float* topdiff, const float*bottom,const float*flow, float* bottomdiff, float* flowdiff, cudaStream_t stream);
 
 #ifdef __cplusplus
 }

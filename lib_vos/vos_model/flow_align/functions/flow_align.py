@@ -10,9 +10,12 @@ class FlowAlignFunction(Function):
   """
   def __init__(self):
     super(FlowAlignFunction,self).__init__()
+    self._flows = None
+    self._features = None
     
   def forward(self,features,flows):
     self._flows = flows
+    self._features = features
     self.feature_size = features.size()
     batch_size_flo, num_channels_flo, data_height_flo, data_width_flo = self._flows.size()
     batch_size, num_channels, data_height, data_width = features.size()
@@ -28,11 +31,11 @@ class FlowAlignFunction(Function):
   def backward(self, grad_output):
     assert(self.feature_size is not None and grad_output.is_cuda)
     batch_size, num_channels, data_height, data_width = self.feature_size
-    grad_input = self.rois.new(batch_size, num_channels, data_height,data_width).zero_()
-
-    flow_align.flow_align_backward_cuda(grad_output, self._flows, grad_input)
-    #delete the saved _flows
-    del self._flows
+    grad_feature = self.rois.new(batch_size, num_channels, data_height,data_width).zero_()
+    #hard code the channel to 2
+    grad_flow = self.rois.new(batch_size, 2, data_height,data_width).zero_()
+    flow_align.flow_align_backward_cuda(grad_output, self._features, self._flows, grad_feature, grad_flow)
     self._flows = None
+    self._features = None
 
-    return grad_input, None
+    return grad_feature, grad_flow
