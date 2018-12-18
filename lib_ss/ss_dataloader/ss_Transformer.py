@@ -12,11 +12,11 @@ class Transformer():
                 brightness_factor_min = 0.9, brightness_factor_max = 1.1,
                 contrast_factor_min = 0.9, contrast_factor_max = 1.1,
                 gamma_min = 0.9, gamma_max = 1.1,
-                hue_factor_min = -0.1, hue_factor_max = 0.1,
+                hue_factor_min = -0.05, hue_factor_max = 0.05,
                 saturation_factor_min = 0.9, saturation_factor_max = 1.1,
-                angle_min = -0, angle_max = 0,
-                shear_min = 0, shear_max = 0,
-                scale_min = 0.8, scale_max = 1.2,
+                angle_min = -15, angle_max = 15,
+                shear_min = -15, shear_max = 15,
+                scale_min = 0.8, scale_max = 1.5,
                 hflip = True):
     """
     expected_blob_size: (h,w)
