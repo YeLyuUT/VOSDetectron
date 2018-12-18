@@ -1,5 +1,8 @@
 from lib import nn as mynn
 import torch.nn as nn
+
+DEBUG = True
+
 def init_func(m):
   if DEBUG:
     print(m)
