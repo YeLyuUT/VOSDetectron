@@ -4,11 +4,16 @@ import torch.nn.functional as F
 from torch.nn import init
 import nn as mynn
 from .config import cfg as SS_config
+import lib.modeling.ResNet as ResNet
+import llib.initialization.init_func as init_func
 
 DEBUG = True
 
-def IDA_ResNet50_conv5_body():
-  return IDA()
+#def IDA_ResNet50_conv5_body():
+# return IDA()
+
+def IDA_ResNet101_conv5_body():
+  return IDA(ResNet.ResNet101_conv5_body)
 
 class IDA_level(nn.Module):
   """ IDA structure in one level.
@@ -39,27 +44,22 @@ class IDA_level(nn.Module):
       nn.Conv2d(i_dim,o_dim,kernel_size=1,bias=False),
       nn.GroupNorm(num_groups=32,num_channels=o_dim))
       )
+    self._init_weights()
 
   def _init_weights(self):
-    def init_func(m):
-      if DEBUG:
-        print(type(m))
-      if isinstance(m, nn.Conv2d):
-        mynn.init.XavierFill(m.weight)
-        if DEBUG:
-          print('XavierFill')
-        if m.bias is not None:
-          init.constant_(m.bias, 0)
-      else:
-        if DEBUG:
-          print('No init')
     for child_m in self.upsampleModules.children():
       child_m.apply(init_func)
+    for child_m in self.lateralModules.children():
+      child_m.apply(init_func)
       
-  def forward(self,*Xs):
+  def forward(self,Xs):
     assert(len(Xs)==len(in_dims))
-    
-    
+    top_blobs = []
+    for idx in range(len(in_dims))-1:
+      X1 = Xs[idx]
+      X2 = Xs[idx+1]
+      top_blobs.append(self.relu(self.upsampleModules[idx](X2)+self.lateralModules[idx](X1)))
+    return top_blobs
 
 class IDA(nn.Module):
   """ IDA module for semantic segmentation.
@@ -69,21 +69,21 @@ class IDA(nn.Module):
   def __init__(self,conv_body_func,IDA_gating = False):
     super(IDA,self).__init__()
     self.IDA_gating = IDA_gating
-    self._init_weights()
     self.conv_body = conv_body_func()
-    self.conv_level1 = IDA_level(SS_config.LEVEL0.out_dims,SS_config.LEVEL1.out_dims)
-    self.conv_level2 = IDA_level(SS_config.LEVEL1.out_dims,SS_config.LEVEL2.out_dims)
-    self.conv_level3 = IDA_level(SS_config.LEVEL2.out_dims,SS_config.LEVEL3.out_dims)
+    self.IDA_level1 = IDA_level(SS_config.LEVEL0.out_dims,SS_config.LEVEL1.out_dims)
+    self.IDA_level2 = IDA_level(SS_config.LEVEL1.out_dims,SS_config.LEVEL2.out_dims)
+    self.IDA_level3 = IDA_level(SS_config.LEVEL2.out_dims,SS_config.LEVEL3.out_dims)
     
-  def _init_weights(self):
-    def init_func(m):
-      if isinstance(m,nn.Conv2d):
-        mynn.init.XavierFill(m.weight)
-        if m.bias is not None:
-            init.constant_(m.bias, 0)
-            
-    for child_m in self.children():
-      #ModuleList contains modules that are initialized by themselves
-      if not isinstance(child_m,nn.ModuleList):
-        child_m.apply(init_func)
-        
+  def forward(self, x):
+    conv_body_blobs = [self.conv_body.res1(x)]
+    for i in range(1, self.conv_body.convX):
+      conv_body_blobs.append(getattr(self.conv_body, 'res%d' % (i+1))(conv_body_blobs[-1]))
+    IDA_blobs = []
+    IDA_blobs.append(self.IDA_level1(conv_body_blobs[1:]))
+    IDA_blobs.append(self.IDA_level2(IDA_blobs[-1]))
+    IDA_blobs.append(self.IDA_level3(IDA_blobs[-1]))
+
+    IDA_top_blobs = [conv_body_blobs[-1]]
+    for i in range(len(IDA_blobs)):
+      IDA_top_blobs.append(IDA_blobs[i][-1])
+
