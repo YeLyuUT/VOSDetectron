@@ -5,7 +5,6 @@ import torchvision.transforms.functional as TF
 import PIL
 from easydict import EasyDict
 
-
 class Transformer():
   def __init__(self, 
                 expected_blob_size, 
@@ -49,18 +48,19 @@ class Transformer():
     self.scale_max = scale_max
     self.hflip = hflip
     self.expected_blob_size = expected_blob_size
-    self.TF_params = self._init_TF_dict(expected_blob_size)
+    self.TF_params = self.reset_TF_dict(expected_blob_size)
     self.getNewRandomTransformForImage()
 
-  def _init_TF_dict(self,expected_blob_size):
+
+  def reset_TF_dict(self):
     TF_params = EasyDict()
     TF_params.brightness_factor = 1.0
     TF_params.contrast_factor = 1.0
     TF_params.gamma = 1.0
     TF_params.hue_factor = 0.0
     TF_params.saturation_factor = 1.0
-    TF_params.angle = 0
-    TF_params.shear = 0
+    TF_params.angle = 0.0
+    TF_params.shear = 0.0
     TF_params.scale = 1.0
     TF_params.size = self.expected_blob_size
     TF_params.hflip = False
@@ -134,6 +134,8 @@ class Transformer():
     img_crops = []
     if gt is not None:
       gt_crops = []
+    else:
+      gt_crops = None
 
     for b in range(batch_size):
       self.getNewRandomCrop(img)
@@ -142,8 +144,5 @@ class Transformer():
       if gt is not None:
         gt_crop = TF.resized_crop(gt,*self.crop_tuple,self.TF_params.size,interpolation = PIL.Image.NEAREST)
         gt_crops.append(gt_crop)
-    if gt is not None: 
-        return img_crops, gt_crops
-    else:
-        return img_crops
-
+    
+    return img_crops, gt_crops
