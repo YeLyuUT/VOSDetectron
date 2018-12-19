@@ -1,4 +1,3 @@
-from imdb import imdb
 import os.path as osp
 import sys
 import os
@@ -6,13 +5,13 @@ import numpy as np
 import json
 import glob
 
-DEBUG = True
+sys.path.append(osp.abspath('../..'))
+from imdb.imdb import imdb as imdb
+DEBUG = False
 
 class cityscape_semantic_db(imdb):
-  
-  
   def __init__(self,cityscape_root):
-    imdb.__init__(self,'cityscape_semantic')
+    super(cityscape_semantic_db,self).__init__('cityscape_semantic')
     self.root = cityscape_root
     
   def getFineImageLabelPair(self,split):
@@ -20,6 +19,8 @@ class cityscape_semantic_db(imdb):
     assert(split in splits)
     label_path_template = osp.join(self.root,'gtFine',split,'*','*labelTrainIds.png')
     label_paths_candidates = glob.glob(label_path_template)
+    if len(label_paths_candidates)==0:
+      raise Exception('Cannot find fine labels. Have downloaded them?')
     image_paths = []
     label_paths = []
     for lbl_p in label_paths_candidates:
@@ -42,6 +43,8 @@ class cityscape_semantic_db(imdb):
     assert(split in splits)
     label_path_template = osp.join(self.root,'gtCoarse',split,'*','*labelTrainIds.png')
     label_paths_candidates = glob.glob(label_path_template)
+    if len(label_paths_candidates)==0:
+      raise Exception('Cannot find coarse labels. Have downloaded them?')
     image_paths = []
     label_paths = []
     for lbl_p in label_paths_candidates:

@@ -48,9 +48,8 @@ class Transformer():
     self.scale_max = scale_max
     self.hflip = hflip
     self.expected_blob_size = expected_blob_size
-    self.TF_params = self.reset_TF_dict(expected_blob_size)
+    self.TF_params = self.reset_TF_dict()
     self.getNewRandomTransformForImage()
-
 
   def reset_TF_dict(self):
     TF_params = EasyDict()
@@ -140,9 +139,49 @@ class Transformer():
     for b in range(batch_size):
       self.getNewRandomCrop(img)
       img_crop = TF.resized_crop(img,*self.crop_tuple,self.TF_params.size,interpolation = PIL.Image.BICUBIC)
-      img_crops.append(img_crop)
+      img_crops.append(np.array(img_crop))
       if gt is not None:
         gt_crop = TF.resized_crop(gt,*self.crop_tuple,self.TF_params.size,interpolation = PIL.Image.NEAREST)
-        gt_crops.append(gt_crop)
+        gt_crops.append(np.array(gt_crop))
     
     return img_crops, gt_crops
+
+class Transformer_equally_spaced_crop():
+    """
+    Generate equally spaced crops.
+    """
+    def __init__(self, expected_blob_size):
+        """
+        expected_blob_size: (h,w)
+        """
+        self.expected_blob_size = expected_blob_size
+
+    def getCropTuples(self, img):
+        img_w, img_h = img.size
+        crop_h, crop_w = self.expected_blob_size
+        tuple_list = []
+        n_i = ((img_h-crop_h)+crop_h/2-1)//(crop_h/2)+1
+        n_j = ((img_w-crop_w)+crop_w/2-1)//(crop_w/2)+1
+        for idy in range(n_i):
+            i = min(idy*crop_h/2, img_h-crop_h)
+            i = int(i)
+            for idx in range(n_j):
+                j = min(idx*crop_w/2, img_w-crop_w)
+                j = int(j)
+                tuple_list.append(i,j,crop_h,crop_w)
+        return tuple_list
+
+    def __call__(self,img,gt = None):
+        img_crops = []
+        crop_tuples = self.getCropTuples(img)
+        crop_img_list = []
+        if gt is not None:
+            crop_gt_list = []
+        else:
+            crop_gt_list = None
+        for tup in crop_tuples:
+            crop_img = TF.resized_crop(img,*tup, 1.0, interpolation = PIL.Image.BICUBIC)
+            crop_gt = TF.resized_crop(gt,*tup, 1.0, interpolation = PIL.Image.BICUBIC)
+            crop_img_list.append(np.array(crop_img))
+            crop_gt_list.append(np.array(crop_gt))
+        return crop_img_list,crop_gt_list
