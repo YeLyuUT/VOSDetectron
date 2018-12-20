@@ -14,7 +14,6 @@ from os import path as osp
 import numpy as np
 
 dir_path = osp.dirname(osp.realpath(__file__))
-print(osp.abspath(osp.join(dir_path,'../ss_core')))
 sys.path.append(osp.abspath(osp.join(dir_path,'../ss_core')))
 from ss_config import cfg as config
 

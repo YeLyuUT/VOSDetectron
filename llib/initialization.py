@@ -1,7 +1,12 @@
-from lib import nn as mynn
+import os.path as osp
+import os
+import sys
+dir_path = osp.dirname(osp.realpath(__file__))
+sys.path.append(osp.abspath(osp.join(dir_path,'../lib')))
+import nn as mynn
 import torch.nn as nn
 
-DEBUG = True
+DEBUG = False
 
 def init_func(m):
   if DEBUG:

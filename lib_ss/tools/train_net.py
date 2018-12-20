@@ -2,6 +2,7 @@
 import argparse
 import distutils.util
 import os
+import os.path as osp
 import sys
 import pickle
 import resource
@@ -16,11 +17,11 @@ from torch.autograd import Variable
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-import sys
 sys.path.append('/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Pytorch/VOSDetectron/lib')
 sys.path.append('/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Pytorch/VOSDetectron/lib_ss')
 
 import nn as mynn
+import utils.misc as misc
 import utils.net as net_utils
 import utils.misc as misc_utils
 
@@ -31,6 +32,8 @@ from utils.training_stats import TrainingStats
 
 from ss_core.ss_config import cfg as cfg
 from ss_dataloader.ss_loader import SemanticSegmentationDataset, Mode
+
+from ss_modeling.model_builder import Generic_SS_Model
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,6 +77,11 @@ def parse_args():
         type=int)
 
     parser.add_argument(
+        '--iter_size',
+        help='Update once every iter_size steps, as in Caffe.',
+        default=1, type=int)
+
+    parser.add_argument(
         '--o', dest='optimizer', help='Training optimizer.',
         default=None)
     parser.add_argument(
@@ -104,6 +112,12 @@ def parse_args():
         help='Number of epochs to train',
         default=10, type=int)
 
+    # Epoch
+    parser.add_argument(
+        '--start_step',
+        help='Starting step count for training epoch. 0-indexed.',
+        default=0, type=int)
+
     # Resume training: requires same iterations per epoch
     parser.add_argument(
         '--resume',
@@ -130,6 +144,28 @@ def parse_args():
 
     return parser.parse_args()
 
+def get_output_dir(run_name):
+    outdir_home = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Pytorch/VOSDetectron/lib_ss/Output'
+    outdir = osp.join(outdir_home,run_name)
+    return outdir
+
+def save_ckpt(output_dir, args, step, model, optimizer):
+    """Save checkpoint"""
+    if args.no_save:
+        return
+    ckpt_dir = os.path.join(output_dir, 'ckpt')
+    if not os.path.exists(ckpt_dir):
+        os.makedirs(ckpt_dir)
+    save_name = os.path.join(ckpt_dir, 'model_step{}.pth'.format(step))
+    if isinstance(model, mynn.DataParallel):
+        model = model.module
+    model_state_dict = model.state_dict()
+    torch.save({
+        'step': step,
+        'batch_size': args.batch_size,
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict()}, save_name)
+    logger.info('save model: %s', save_name)
 
 if __name__=='__main__':
     args = parse_args()
@@ -171,21 +207,202 @@ if __name__=='__main__':
         dataset = SemanticSegmentationDataset(txtfile, mode, use_data_augmentation, assertNum = None)
         dataloader = DataLoader(dataset, batch_size = 1,shuffle = True)
         dataiterator = iter(dataloader)
-        input_data = next(dataiterator)
+        
+        #input_data = next(dataiterator)
         #reshape data to 4 dimentions
         #input_data[0]: img 
         #input_data[1]: gt
         #input_data[2]: index
-        input_data[0] = input_data[0].view(-1,*input_data[0].shape[2:])
-        input_data[1] = input_data[1].view(-1,*input_data[1].shape[2:])
+        #input_data[0] = input_data[0].view(-1,*input_data[0].shape[2:])
+        #input_data[1] = input_data[1].view(-1,*input_data[1].shape[2:])
         
 
     else:
         dataloader = DataLoader(dataset, batch_size = 1,shuffle = False)
 
+    #TODO move class_num to other place
+    IDA_Net = Generic_SS_Model(class_num = 20, ignore_index = 19, weight = None)
+    #print(IDA_Net.__dict__.keys())
+    assert(IDA_Net.detectron_weight_mapping)
+    #Use cuda on compulsory
+    IDA_Net.cuda()
+### Optimizer ###
+    gn_param_nameset = set()
+    for name, module in IDA_Net.named_modules():
+        if isinstance(module, nn.GroupNorm):
+            gn_param_nameset.add(name+'.weight')
+            gn_param_nameset.add(name+'.bias')
+    gn_params = []
+    gn_param_names = []
+    bias_params = []
+    bias_param_names = []
+    nonbias_params = []
+    nonbias_param_names = []
+    nograd_param_names = []
+    for key, value in IDA_Net.named_parameters():
+        if value.requires_grad:
+            if 'bias' in key:
+                bias_params.append(value)
+                bias_param_names.append(key)
+            elif key in gn_param_nameset:
+                gn_params.append(value)
+                gn_param_names.append(key)
+            else:
+                nonbias_params.append(value)
+                nonbias_param_names.append(key)
+        else:
+            nograd_param_names.append(key)
+    assert (gn_param_nameset - set(nograd_param_names) - set(bias_param_names)) == set(gn_param_names)
+
+    # Learning rate of 0 is a dummy value to be set properly at the start of training
+    params = [
+        {'params': nonbias_params,
+         'lr': 0,
+         'weight_decay': cfg.SOLVER.WEIGHT_DECAY},
+        {'params': bias_params,
+         'lr': 0 * (cfg.SOLVER.BIAS_DOUBLE_LR + 1),
+         'weight_decay': cfg.SOLVER.WEIGHT_DECAY if cfg.SOLVER.BIAS_WEIGHT_DECAY else 0},
+        {'params': gn_params,
+         'lr': 0,
+         'weight_decay': cfg.SOLVER.WEIGHT_DECAY_GN}
+    ]
+    # names of paramerters for each paramter
+    param_names = [nonbias_param_names, bias_param_names, gn_param_names]
 
 
+    if cfg.SOLVER.TYPE == 'SGD':
+        optimizer = torch.optim.SGD(params, momentum=cfg.SOLVER.MOMENTUM)
+    elif cfg.SOLVER.TYPE == "Adam":
+        optimizer = torch.optim.Adam(params)
 
+    ### Load checkpoint
+    if args.load_ckpt:
+        load_name = args.load_ckpt
+        logging.info("loading checkpoint %s", load_name)
+        checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
+        net_utils.load_ckpt(IDA_Net, checkpoint['model'])
+        if args.resume:
+            args.start_step = checkpoint['step'] + 1
 
+            # reorder the params in optimizer checkpoint's params_groups if needed
+            # misc_utils.ensure_optimizer_ckpt_params_order(param_names, checkpoint)
 
+            # There is a bug in optimizer.load_state_dict on Pytorch 0.3.1.
+            # However it's fixed on master.
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            # misc_utils.load_optimizer_state_dict(optimizer, checkpoint['optimizer'])
+        del checkpoint
+        torch.cuda.empty_cache()
 
+    if args.load_detectron:  #TODO resume for detectron weights (load sgd momentum values)
+        logging.info("loading Detectron weights %s", args.load_detectron)
+        load_detectron_weight(IDA_Net, args.load_detectron,force_load_all = False)
+
+    lr = optimizer.param_groups[0]['lr']
+    run_name = misc.get_run_name()+'_step'
+    output_dir = get_output_dir(run_name)
+
+    if not args.no_save:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        blob = {'cfg': yaml.dump(cfg), 'args': args}
+        with open(os.path.join(output_dir, 'config_and_args.pkl'), 'wb') as f:
+            pickle.dump(blob, f, pickle.HIGHEST_PROTOCOL)
+
+        if args.use_tfboard:
+            from tensorboardX import SummaryWriter
+            # Set the Tensorboard logger
+            tblogger = SummaryWriter(output_dir)
+
+    #train loop
+    IDA_Net.train()
+    # Set index for decay steps
+    decay_steps_ind = None
+    for i in range(1, len(cfg.SOLVER.STEPS)):
+        if cfg.SOLVER.STEPS[i] >= args.start_step:
+            decay_steps_ind = i
+            break
+    if decay_steps_ind is None:
+        decay_steps_ind = len(cfg.SOLVER.STEPS)
+
+    training_stats = TrainingStats(
+        args,
+        args.disp_interval,
+        tblogger if args.use_tfboard and not args.no_save else None)
+
+    try:
+        logger.info('Training starts !')
+        step = args.start_step
+        for step in range(args.start_step, cfg.SOLVER.MAX_ITER):
+
+            # Warm up
+            if step < cfg.SOLVER.WARM_UP_ITERS:
+                method = cfg.SOLVER.WARM_UP_METHOD
+                if method == 'constant':
+                    warmup_factor = cfg.SOLVER.WARM_UP_FACTOR
+                elif method == 'linear':
+                    alpha = step / cfg.SOLVER.WARM_UP_ITERS
+                    warmup_factor = cfg.SOLVER.WARM_UP_FACTOR * (1 - alpha) + alpha
+                else:
+                    raise KeyError('Unknown SOLVER.WARM_UP_METHOD: {}'.format(method))
+                lr_new = cfg.SOLVER.BASE_LR * warmup_factor
+                net_utils.update_learning_rate(optimizer, lr, lr_new)
+                lr = optimizer.param_groups[0]['lr']
+                assert lr == lr_new
+            elif step == cfg.SOLVER.WARM_UP_ITERS:
+                net_utils.update_learning_rate(optimizer, lr, cfg.SOLVER.BASE_LR)
+                lr = optimizer.param_groups[0]['lr']
+                assert lr == cfg.SOLVER.BASE_LR
+
+            # Learning rate decay
+            if decay_steps_ind < len(cfg.SOLVER.STEPS) and \
+                    step == cfg.SOLVER.STEPS[decay_steps_ind]:
+                logger.info('Decay the learning on step %d', step)
+                lr_new = lr * cfg.SOLVER.GAMMA
+                net_utils.update_learning_rate(optimizer, lr, lr_new)
+                lr = optimizer.param_groups[0]['lr']
+                assert lr == lr_new
+                decay_steps_ind += 1
+
+            training_stats.IterTic()
+            optimizer.zero_grad()
+            for inner_iter in range(args.iter_size):
+                try:
+                    input_data = next(dataiterator)    
+                except StopIteration:
+                    dataiterator = iter(dataloader)
+                    input_data = next(dataiterator)
+                
+                input_data[0] = input_data[0].view(-1,*input_data[0].shape[2:])
+                input_data[1] = input_data[1].view(-1,*input_data[1].shape[2:])
+                net_outputs = IDA_Net(input_data[0], input_data[1])
+                index = input_data[2]
+                #training_stats.UpdateIterStats(net_outputs, inner_iter)
+                loss = net_outputs['loss']
+                metric = net_outputs['metric']
+                print('loss:%f, metric:%f, index:%d, step:%d'%(loss, metric, index, step))
+                loss.backward()
+            optimizer.step()
+            training_stats.IterToc()
+
+            training_stats.LogIterStats(step, lr)
+
+            if (step+1) % CHECKPOINT_PERIOD == 0:
+                save_ckpt(output_dir, args, step, IDA_Net, optimizer)
+
+        # ---- Training ends ----
+        # Save last checkpoint
+        save_ckpt(output_dir, args, step, IDA_Net, optimizer)
+
+    except (RuntimeError, KeyboardInterrupt):
+        del dataiterator
+        logger.info('Save ckpt on exception ...')
+        save_ckpt(output_dir, args, step, IDA_Net, optimizer)
+        logger.info('Save ckpt done.')
+        stack_trace = traceback.format_exc()
+        print(stack_trace)
+
+    finally:
+        if args.use_tfboard and not args.no_save:
+            tblogger.close()

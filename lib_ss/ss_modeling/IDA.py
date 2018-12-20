@@ -3,9 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
 import nn as mynn
-from .config import cfg as SS_config
-import lib.modeling.ResNet as ResNet
-import llib.initialization.init_func as init_func
+import os.path as osp
+import os
+import sys
+dir_path = osp.dirname(osp.realpath(__file__))
+sys.path.append(osp.abspath(osp.join(dir_path,'../ss_core')))
+sys.path.append(osp.abspath(osp.join(dir_path,'../../lib')))
+sys.path.append(osp.abspath(osp.join(dir_path,'../../llib')))
+
+from initialization import init_func as init_func
+from ss_config import cfg as config
+import modeling.ResNet as ResNet
 
 DEBUG = True
 
@@ -70,9 +78,10 @@ class IDA(nn.Module):
     super(IDA,self).__init__()
     self.IDA_gating = IDA_gating
     self.conv_body = conv_body_func()
-    self.IDA_level1 = IDA_level(SS_config.LEVEL0.out_dims,SS_config.LEVEL1.out_dims)
-    self.IDA_level2 = IDA_level(SS_config.LEVEL1.out_dims,SS_config.LEVEL2.out_dims)
-    self.IDA_level3 = IDA_level(SS_config.LEVEL2.out_dims,SS_config.LEVEL3.out_dims)
+    self.IDA_level1 = IDA_level(config.IDA.LEVEL0_out_dims,config.IDA.LEVEL1_out_dims)
+    self.IDA_level2 = IDA_level(config.IDA.LEVEL1_out_dims,config.IDA.LEVEL2_out_dims)
+    self.IDA_level3 = IDA_level(config.IDA.LEVEL2_out_dims,config.IDA.LEVEL3_out_dims)
+    
     
   def forward(self, x):
     conv_body_blobs = [self.conv_body.res1(x)]
@@ -87,3 +96,4 @@ class IDA(nn.Module):
     for i in range(len(IDA_blobs)):
       IDA_top_blobs.append(IDA_blobs[i][-1])
 
+  

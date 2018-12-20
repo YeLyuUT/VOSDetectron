@@ -1,25 +1,31 @@
 import torch
 import torch.nn as nn
-import llib.initialization as init
-import lib_ss.config as config
+import os
+import sys
+import os.path as osp
+dir_path = osp.dirname(osp.realpath(__file__))
+sys.path.append(osp.abspath(osp.join(dir_path,'../../llib')))
+import initialization as init
+from ss_config import cfg as config
 
 class IDA_ss_outputs(nn.Module):
   def __init__(self, class_num):
+    super(IDA_ss_outputs,self).__init__()
     self.class_num = class_num
     self.up_sample_list = nn.ModuleList()
     self.scales = config.IDA.SCALES
     for scale in self.scales:
       self.up_sample_list.append(self._upsample_layer(scale))
     self.pred = self._prediction_layer()
-
+    
   def _upsample_layer(self, scale_factor):
     return nn.UpsamplingBilinear2d(scale_factor=scale_factor)
 
   def _prediction_layer(self):
-    i_dim = config.IDA.LEVEL0.out_dims[-1]+
-                config.IDA.LEVEL1.out_dims[-1]+
-                config.IDA.LEVEL2.out_dims[-1]+
-                config.IDA.LEVEL3.out_dims[-1]
+    i_dim = config.IDA.LEVEL0_out_dims[-1]\
+           +config.IDA.LEVEL1_out_dims[-1]\
+           +config.IDA.LEVEL2_out_dims[-1]\
+           +config.IDA.LEVEL3_out_dims[-1]
     o_dim = self.class_num
     return nn.Conv2d(i_dim,o_dim,kernel_size=1,bias=False)
 
