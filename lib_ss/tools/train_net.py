@@ -402,7 +402,6 @@ if __name__=='__main__':
         logger.info('Save ckpt done.')
         stack_trace = traceback.format_exc()
         print(stack_trace)
-
     finally:
         if args.use_tfboard and not args.no_save:
             tblogger.close()
