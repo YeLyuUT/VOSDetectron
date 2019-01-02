@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from .IDA_ss_head import IDA_ss_outputs
-from .IDA import IDA_ResNet101_conv5_body
+from .IDA import IDA_ResNet101_conv5_body, IDA_ResNet50_conv5_body
 from .generic_ss_loss import ss_loss_2d_single_scale
 from .generic_ss_metric import metric_pixel_accurary_2d
 import os
@@ -14,7 +14,7 @@ class Generic_SS_Model(nn.Module):
     super(Generic_SS_Model,self).__init__()
     self.backbone = self._getBackBone()
     self.head = self._getHead(class_num)
-    self.loss_func = self._loss_func(weight=weight, ignore_index=ignore_index, reduction='mean')
+    self.loss_func = self._loss_func(weight=weight, ignore_index=ignore_index, reduction='elementwise_mean')
     self.return_dict = {}
     self.return_dict['loss'] = None
     self.return_dict['metric'] = None
@@ -30,7 +30,8 @@ class Generic_SS_Model(nn.Module):
     return self.return_dict
 
   def _getBackBone(self):
-    return IDA_ResNet101_conv5_body()
+    return IDA_ResNet50_conv5_body()
+    #return IDA_ResNet101_conv5_body()
 
   def _getHead(self,class_num):
     return IDA_ss_outputs(class_num)

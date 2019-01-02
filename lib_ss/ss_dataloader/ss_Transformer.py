@@ -124,7 +124,7 @@ class Transformer():
     #resample =  PIL.Image.BICUBIC or PIL.Image.NEAREST or PIL.Image.BILINEAR
     img = TF.affine(img, self.TF_params.angle, translate, scale, self.TF_params.shear, PIL.Image.BICUBIC, fillcolor=None)
     if gt is not None:
-      gt = TF.affine(img, self.TF_params.angle, translate, scale, self.TF_params.shear, PIL.Image.NEAREST, fillcolor=None)
+      gt = TF.affine(gt, self.TF_params.angle, translate, scale, self.TF_params.shear, PIL.Image.NEAREST, fillcolor=None)
 
     if self.TF_params.hflip:
       img = TF.hflip(img)

@@ -12,14 +12,8 @@ class IDA_ss_outputs(nn.Module):
   def __init__(self, class_num):
     super(IDA_ss_outputs,self).__init__()
     self.class_num = class_num
-    self.up_sample_list = nn.ModuleList()
     self.scales = config.IDA.SCALES
-    for scale in self.scales:
-      self.up_sample_list.append(self._upsample_layer(scale))
     self.pred = self._prediction_layer()
-    
-  def _upsample_layer(self, scale_factor):
-    return nn.UpsamplingBilinear2d(scale_factor=scale_factor)
 
   def _prediction_layer(self):
     i_dim = config.IDA.LEVEL0_out_dims[-1]\
@@ -30,11 +24,13 @@ class IDA_ss_outputs(nn.Module):
     return nn.Conv2d(i_dim,o_dim,kernel_size=1,bias=False)
 
   def forward(self, blobs):
-    assert(blobs is list)
+    assert(isinstance(blobs, list))
     assert(len(blobs)==len(self.scales))
     same_scale_blobs = []
     for idx in range(len(blobs)):
-      same_scale_blobs.append(self.up_sample_list(blobs[idx]))
+      #upsample the result
+      same_scale_blobs.append(nn.functional.interpolate(blobs[idx],mode='bilinear',scale_factor=1.0/self.scales[idx]))
+      #same_scale_blobs.append(self.up_sample_list[idx](blobs[idx]))
     cat_blob = torch.cat(same_scale_blobs,dim=1)
     top_blob = self.pred(cat_blob)
     return top_blob

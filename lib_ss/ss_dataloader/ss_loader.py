@@ -24,7 +24,7 @@ class Mode(Enum):
   TEST=4
 
 class SemanticSegmentationDataset(data.Dataset):
-  def __init__(self, txtfile, mode, use_data_augmentation = True, assertNum = None):
+  def __init__(self, txtfile, mode, use_data_augmentation = True, assertNum = None, gtMapper = None):
     """
     Args:
     txtfile: txt file path of which contains image label paths.
@@ -35,11 +35,13 @@ class SemanticSegmentationDataset(data.Dataset):
               For test mode:
                   txt file should contain tuples like rows, each row is  "<imgPath> <outputPath>\n"
     assertNum: if not None, shuold be a number to check if correct number of items are read.
+    gtMapper: mapper that changes gt values
     """
     assert(isinstance(mode,Mode))
     self._items_list =  []
     self._mode = mode
     self._use_data_augmentation = use_data_augmentation
+    self._gtMapper = gtMapper
     with open(txtfile,'r') as f:
       lines = f.readlines()
       for line in lines:
@@ -114,10 +116,12 @@ class SemanticSegmentationDataset(data.Dataset):
       #normalize image to range 0-1
       inputs['img_PIL'] = inputs['img_PIL']*2./255.-1.
       inputs['img_PIL'] = np.transpose(inputs['img_PIL'], axes=(0,3,1,2))
+      #print(inputs['img_PIL'].shape)
       inputs['img_PIL'] = torch.from_numpy(inputs['img_PIL'])
     if inputs['gt_PIL'] is not None:
-      inputs['gt_PIL'] = np.array(inputs['gt_PIL'],dtype=np.int32)
-      inputs['gt_PIL'] = np.transpose(inputs['gt_PIL'], axes=(0,3,1,2))
+      inputs['gt_PIL'] = np.array(inputs['gt_PIL'],dtype=np.int64)
+      if not self._gtMapper is None:
+        inputs['gt_PIL'] = self._gtMapper(inputs['gt_PIL'])
       inputs['gt_PIL'] = torch.from_numpy(inputs['gt_PIL'])
     if inputs['gt_PIL'] is not None:
       return inputs['img_PIL'],inputs['gt_PIL'],inputs['index']

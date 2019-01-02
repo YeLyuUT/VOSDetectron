@@ -3,18 +3,20 @@ from easydict import EasyDict
 __C = EasyDict()
 cfg = __C
 
+__C.NUM_GPUS = 1
 # Semantic segmentation 
 # The blob size cropped from image for training.
 __C.TRAIN = EasyDict()
-__C.TRAIN.INPUT_BLOB_SIZE = (768,768)
+__C.TRAIN.INPUT_BLOB_SIZE = (640,640)
+__C.TRAIN.BATCH_SIZE = 1
 # For one image, how many crops are got.
 __C.TRAIN.CROP_BATCH_SIZE = 1
+__C.TRAIN.SNAPSHOT_ITERS = 2450
 
 # SOLVER
 __C.SOLVER = EasyDict()
-__C.SOLVER.BASE_LR = 1e-3
 __C.SOLVER.STEPS = 0
-__C.SOLVER.MAX_ITER = 80000
+__C.SOLVER.MAX_ITER = 150000
 
 __C.SOLVER.TYPE = 'SGD'
 # Base learning rate for the specified schedule

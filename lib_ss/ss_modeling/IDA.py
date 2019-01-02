@@ -20,6 +20,9 @@ DEBUG = True
 #def IDA_ResNet50_conv5_body():
 # return IDA()
 
+def IDA_ResNet50_conv5_body():
+  return IDA(ResNet.ResNet50_conv5_body)
+
 def IDA_ResNet101_conv5_body():
   return IDA(ResNet.ResNet101_conv5_body)
 
@@ -34,6 +37,7 @@ class IDA_level(nn.Module):
     self.upsampleModules = nn.ModuleList()
     self.lateralModules = nn.ModuleList()
     self.relu = nn.ReLU(inplace=True)
+    self.in_dims = in_dims
     for idx in range(len(in_dims)-1):      
       #upsample to 2X size
       i_dim = in_dims[idx+1]
@@ -41,7 +45,7 @@ class IDA_level(nn.Module):
       self.upsampleModules.append(
       nn.Sequential(
       nn.Conv2d(i_dim,o_dim,kernel_size=1,bias=False),
-      nn.GroupNorm(num_groups=32,num_channels=o_dim),
+      nn.GroupNorm(num_groups=2,num_channels=o_dim),
       nn.UpsamplingBilinear2d(scale_factor=2))
       )
       #lateral convolution
@@ -50,7 +54,7 @@ class IDA_level(nn.Module):
       self.lateralModules.append(
       nn.Sequential(
       nn.Conv2d(i_dim,o_dim,kernel_size=1,bias=False),
-      nn.GroupNorm(num_groups=32,num_channels=o_dim))
+      nn.GroupNorm(num_groups=2,num_channels=o_dim))
       )
     self._init_weights()
 
@@ -61,9 +65,9 @@ class IDA_level(nn.Module):
       child_m.apply(init_func)
       
   def forward(self,Xs):
-    assert(len(Xs)==len(in_dims))
+    assert(len(Xs)==len(self.in_dims))
     top_blobs = []
-    for idx in range(len(in_dims))-1:
+    for idx in range(len(self.in_dims)-1):
       X1 = Xs[idx]
       X2 = Xs[idx+1]
       top_blobs.append(self.relu(self.upsampleModules[idx](X2)+self.lateralModules[idx](X1)))
@@ -95,5 +99,6 @@ class IDA(nn.Module):
     IDA_top_blobs = [conv_body_blobs[-1]]
     for i in range(len(IDA_blobs)):
       IDA_top_blobs.append(IDA_blobs[i][-1])
+    return IDA_top_blobs
 
   

@@ -1,0 +1,4 @@
+#Train from scratch with detectron weights
+
+python lib_ss/tools/train_net.py --txtfile '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Pytorch/VOSDetectron/imdb/semantic/cityscape_train.txt' --mode 'train' --load_detectron '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Pytorch/VOSDetectron/data/pretrained_model/R-50-GN.pkl'
+
