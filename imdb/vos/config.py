@@ -21,8 +21,10 @@ from easydict import EasyDict as AttrDict
 
 __C = AttrDict()
 cfg = __C
+cfg.COCO_API_HOME = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Dataset/MSCOCO/PythonAPI'
 # ---------------------------------------------------------------------------- #
 # DAVIS
 # ---------------------------------------------------------------------------- #
 #directory contains davis api tools.
+__C.DAVIS = AttrDict()
 __C.DAVIS.HOME = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Dataset/DAVIS/davis-2017'

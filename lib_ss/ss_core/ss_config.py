@@ -11,12 +11,12 @@ __C.TRAIN.INPUT_BLOB_SIZE = (640,640)
 __C.TRAIN.BATCH_SIZE = 1
 # For one image, how many crops are got.
 __C.TRAIN.CROP_BATCH_SIZE = 1
-__C.TRAIN.SNAPSHOT_ITERS = 2450
+__C.TRAIN.SNAPSHOT_ITERS = 10000
 
 # SOLVER
 __C.SOLVER = EasyDict()
 __C.SOLVER.STEPS = 0
-__C.SOLVER.MAX_ITER = 150000
+__C.SOLVER.MAX_ITER = 300000
 
 __C.SOLVER.TYPE = 'SGD'
 # Base learning rate for the specified schedule
@@ -45,7 +45,7 @@ __C.SOLVER.LR_POLICY = 'step'
 __C.SOLVER.GAMMA = 0.1
 
 # Uniform step size for 'steps' policy
-__C.SOLVER.STEP_SIZE = 30000
+__C.SOLVER.STEP_SIZE = 70000
 
 # Non-uniform step iterations for 'steps_with_decay' or 'steps_with_lrs'
 # policies
