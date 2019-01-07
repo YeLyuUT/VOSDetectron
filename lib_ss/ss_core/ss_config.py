@@ -7,8 +7,8 @@ __C.NUM_GPUS = 1
 # Semantic segmentation 
 # The blob size cropped from image for training.
 __C.TRAIN = EasyDict()
-__C.TRAIN.INPUT_BLOB_SIZE = (640,640)
-__C.TRAIN.BATCH_SIZE = 1
+__C.TRAIN.INPUT_BLOB_SIZE = (608,608)
+__C.TRAIN.BATCH_SIZE = 4
 # For one image, how many crops are got.
 __C.TRAIN.CROP_BATCH_SIZE = 1
 __C.TRAIN.SNAPSHOT_ITERS = 10000
@@ -16,7 +16,7 @@ __C.TRAIN.SNAPSHOT_ITERS = 10000
 # SOLVER
 __C.SOLVER = EasyDict()
 __C.SOLVER.STEPS = 0
-__C.SOLVER.MAX_ITER = 300000
+__C.SOLVER.MAX_ITER = 90000
 
 __C.SOLVER.TYPE = 'SGD'
 # Base learning rate for the specified schedule
@@ -45,7 +45,7 @@ __C.SOLVER.LR_POLICY = 'step'
 __C.SOLVER.GAMMA = 0.1
 
 # Uniform step size for 'steps' policy
-__C.SOLVER.STEP_SIZE = 70000
+__C.SOLVER.STEP_SIZE = 25000
 
 # Non-uniform step iterations for 'steps_with_decay' or 'steps_with_lrs'
 # policies
@@ -94,9 +94,9 @@ __C.SOLVER.LOG_LR_CHANGE_THRESHOLD = 1.1
 # IDA settings
 __C.IDA = EasyDict()
 __C.IDA.LEVEL0_out_dims = [256,512,1024,2048]
-__C.IDA.LEVEL1_out_dims = [32,32,32]
-__C.IDA.LEVEL2_out_dims = [32,32]
-__C.IDA.LEVEL3_out_dims = [32]
+__C.IDA.LEVEL1_out_dims = [128,128,128]
+__C.IDA.LEVEL2_out_dims = [64,64]
+__C.IDA.LEVEL3_out_dims = [64]
 __C.IDA.SCALES = [1./32.,1./16.,1./8.,1./4.]
 
 # 

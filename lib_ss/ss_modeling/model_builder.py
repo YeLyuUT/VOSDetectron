@@ -4,6 +4,7 @@ from .IDA_ss_head import IDA_ss_outputs
 from .IDA import IDA_ResNet101_conv5_body, IDA_ResNet50_conv5_body
 from .generic_ss_loss import ss_loss_2d_single_scale
 from .generic_ss_metric import metric_pixel_accurary_2d
+from .generic_ss_prediction import predict_pixel_2d
 import os
 import sys
 import os.path as osp
@@ -19,14 +20,28 @@ class Generic_SS_Model(nn.Module):
     self.return_dict['loss'] = None
     self.return_dict['metric'] = None
     self.mapping_to_detectron = None
-
+    self._use_logits = False
+    self._use_pred = False
+    
+  def use_pred(self,use_pred):
+    self._use_pred = use_pred
+  
+  def use_logits(self,use_logits):
+    self._use_logits = use_logits
+  
   def forward(self, x,y):
     outputs_backbone = self.backbone(x)
-    output_pred = self.head(outputs_backbone)
-    loss = self.loss_func(output_pred, y)
-    accuracy = metric_pixel_accurary_2d(output_pred, y)
-    self.return_dict['loss'] = loss
-    self.return_dict['metric'] = accuracy
+    output_logits = self.head(outputs_backbone)
+    pred = predict_pixel_2d(output_logits)
+    if y is not None:
+      loss = self.loss_func(output_logits, y)
+      accuracy = metric_pixel_accurary_2d(pred, y)
+      self.return_dict['loss'] = loss
+      self.return_dict['metric'] = accuracy
+    if self._use_pred:
+      self.return_dict['prediction'] = pred
+    if self._use_logits:
+      self.return_dict['logits'] = output_logits.data.cpu()
     return self.return_dict
 
   def _getBackBone(self):

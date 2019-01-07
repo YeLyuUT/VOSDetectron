@@ -95,7 +95,14 @@ class cityscape_semantic_db(imdb):
         print(lbl_list[i])
 
     return img_list,lbl_list
-
+    
+  def getTestData(self):
+    img_list = []
+    lbl_list = []
+    imgs,lbls = self.getFineImageLabelPair('test')
+    img_list.extend(imgs)
+    lbl_list.extend(lbls)
+    return img_list,lbl_list
 
 def test(root):
   db = cityscape_semantic_db(root)

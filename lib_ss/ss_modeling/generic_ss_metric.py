@@ -6,9 +6,8 @@ def metric_pixel_accurary_2d(y_pred, y_gt, ignore_last_label = True):
   Args:
   ignore_last_label: if the last label is dummy for training, then set it to True. Default True.
   '''
-  assert(len(y_pred.shape)-1==len(y_gt.shape))
-  assert(len(y_pred.shape)==4)
-  y_pred = torch.argmax(y_pred, dim=1, keepdim=False)
+  assert(len(y_pred.shape)==len(y_gt.shape))
+  assert(3==len(y_gt.shape))
   out_cmp = torch.eq(y_pred,y_gt)
   numerator = torch.sum(out_cmp,dtype=torch.float)
   if not ignore_last_label:
@@ -16,3 +15,4 @@ def metric_pixel_accurary_2d(y_pred, y_gt, ignore_last_label = True):
   else:
     denominator = torch.sum(y_gt<(y_pred.shape[1]-1),dtype=torch.float)
   return torch.div(numerator,denominator)
+  

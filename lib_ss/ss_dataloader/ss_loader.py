@@ -24,7 +24,7 @@ class Mode(Enum):
   TEST=4
 
 class SemanticSegmentationDataset(data.Dataset):
-  def __init__(self, txtfile, mode, use_data_augmentation = True, assertNum = None, gtMapper = None):
+  def __init__(self, txtfile, mode, use_data_augmentation = True, assertNum = None, gtMapper = None, batch_size = 1):
     """
     Args:
     txtfile: txt file path of which contains image label paths.
@@ -42,6 +42,7 @@ class SemanticSegmentationDataset(data.Dataset):
     self._mode = mode
     self._use_data_augmentation = use_data_augmentation
     self._gtMapper = gtMapper
+    self._batch_size = batch_size
     with open(txtfile,'r') as f:
       lines = f.readlines()
       for line in lines:
@@ -58,7 +59,7 @@ class SemanticSegmentationDataset(data.Dataset):
           assert(osp.exists(items[0]))
           assert(osp.exists(items[1]))
         elif self._mode==Mode.TEST:
-          assert(len(items)==2)
+          assert(len(items)==3)          
           assert(osp.exists(items[0]))
         self._items_list.append(items)
     if assertNum is not None:
@@ -70,9 +71,12 @@ class SemanticSegmentationDataset(data.Dataset):
     if self._mode==Mode.TEST:
       return self._items_list[index][1]
   
+  def get_Transformer(self):
+    return self._TF
+  
   def __getitem__(self, index):
     items = self._items_list[index]
-    inputs = {'img_PIL': None, 'gt_PIL': None, 'index': None}
+    inputs = {'img_PIL': None, 'gt_PIL': None, 'index': None, 'pred_path':None}
     for item in items:
       print(osp.basename(item))
     if self._mode==Mode.TRAIN or self._mode==Mode.VAL_NO_PRED:
@@ -91,11 +95,13 @@ class SemanticSegmentationDataset(data.Dataset):
       inputs['img_PIL'] = img_PIL
       inputs['gt_PIL'] = gt_PIL
       inputs['index'] = np.array(index,np.int32)
+      inputs['pred_path'] = items[2]
     elif self._mode==Mode.TEST:
       imgPath = items[0]
       img_PIL = Image.open(imgPath)
       inputs['img_PIL'] = img_PIL
       inputs['index'] = np.array(index,np.int32)
+      inputs['pred_path'] = items[2]
     else:
       raise Exception('What??? This is impossible.')
     if self._mode==Mode.TRAIN:
@@ -103,11 +109,11 @@ class SemanticSegmentationDataset(data.Dataset):
       TF = Transformer(config.TRAIN.INPUT_BLOB_SIZE)
       if not self._use_data_augmentation:
         TF.reset_TF_dict()
-      inputs['img_PIL'],inputs['gt_PIL'] = TF(inputs['img_PIL'],inputs['gt_PIL'])
+      inputs['img_PIL'],inputs['gt_PIL'] = TF(inputs['img_PIL'],inputs['gt_PIL'],batch_size = self._batch_size)
     elif self._mode==Mode.VAL_NO_PRED or self._mode==Mode.VAL_PRED or self._mode==Mode.TEST:
       TF = Transformer_equally_spaced_crop(config.TRAIN.INPUT_BLOB_SIZE)
       inputs['img_PIL'],inputs['gt_PIL'] = TF(inputs['img_PIL'],inputs['gt_PIL'])
-    
+    self._TF = TF
     
     #generate Tensor
     inputs['index'] = torch.from_numpy(inputs['index'])
@@ -123,10 +129,11 @@ class SemanticSegmentationDataset(data.Dataset):
       if not self._gtMapper is None:
         inputs['gt_PIL'] = self._gtMapper(inputs['gt_PIL'])
       inputs['gt_PIL'] = torch.from_numpy(inputs['gt_PIL'])
-    if inputs['gt_PIL'] is not None:
-      return inputs['img_PIL'],inputs['gt_PIL'],inputs['index']
-    else:
-      return inputs['img_PIL'],inputs['index']
+    for name in inputs.keys():
+      #handle None type for pytorch.      
+      if inputs[name] is None:
+        inputs[name] = []
+    return inputs
 
   def __len__(self):
     return len(self._items_list)

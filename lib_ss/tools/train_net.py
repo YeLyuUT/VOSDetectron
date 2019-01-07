@@ -24,6 +24,7 @@ import nn as mynn
 import utils.misc as misc
 import utils.net as net_utils
 import utils.misc as misc_utils
+from PIL import Image
 
 from utils.detectron_weight_helper import load_detectron_weight
 from utils.logging import log_stats
@@ -160,6 +161,14 @@ def get_output_dir(run_name):
     outdir = osp.join(outdir_home,run_name)
     return outdir
 
+#Save label as uint8 image.
+def save_prediction(y_pred,savePath):
+  assert(len(y_pred.shape)==2)
+  print('####')
+  print(savePath)
+  print('####')
+  Image.fromarray(y_pred).save(savePath)
+
 def save_ckpt(output_dir, args, step, model, optimizer):
     """Save checkpoint"""
     if args.no_save:
@@ -215,24 +224,20 @@ if __name__=='__main__':
     
     #Load config to args
     args.batch_size = cfg.TRAIN.BATCH_SIZE
-
+    cfg.SOLVER.BASE_LR = cfg.SOLVER.BASE_LR/args.batch_size
 
     use_data_augmentation = False
     if mode == Mode.TRAIN:
         use_data_augmentation = True
         gt_mapper = default_gt_mapper(class_num_valid = class_num-1)
-        dataset = SemanticSegmentationDataset(txtfile, mode, use_data_augmentation, assertNum = None, gtMapper = gt_mapper)
+        dataset = SemanticSegmentationDataset(txtfile, mode, use_data_augmentation, assertNum = None, gtMapper = gt_mapper, batch_size = args.batch_size)
         dataloader = DataLoader(dataset, batch_size = 1,shuffle = True)
         dataiterator = iter(dataloader)
-        #input_data = next(dataiterator)
-        #reshape data to 4 dimentions
-        #input_data[0]: img 
-        #input_data[1]: gt
-        #input_data[2]: index
-        #input_data[0] = input_data[0].view(-1,*input_data[0].shape[2:])
-        #input_data[1] = input_data[1].view(-1,*input_data[1].shape[2:])
     else:
+        use_data_augmentation = False
+        dataset = SemanticSegmentationDataset(txtfile, mode, use_data_augmentation, assertNum = None, gtMapper = None)
         dataloader = DataLoader(dataset, batch_size = 1,shuffle = False)
+        dataiterator = iter(dataloader)
 
     IDA_Net = Generic_SS_Model(class_num = class_num, ignore_index = class_num-1, weight = None)
     #print(IDA_Net.__dict__.keys())
@@ -240,7 +245,63 @@ if __name__=='__main__':
     #Use cuda on compulsory
     IDA_Net = IDA_Net.cuda()
     torch.device('cuda')
+  
+    if mode == Mode.TEST:
+        ### Load checkpoint
+        load_name = args.load_ckpt
+        logging.info("loading checkpoint %s", load_name)
+        checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
+        net_utils.load_ckpt_no_mapping(IDA_Net, checkpoint['model'])
+        del checkpoint
+        torch.cuda.empty_cache()
+        run_name = misc.get_run_name()+'_test'
+        output_dir = get_output_dir(run_name)
+        IDA_Net.eval()
+        IDA_Net.use_logits(True)
+        try:
+            logger.info('Testing starts !')
+            while True:
+                try:
+                    input_data = next(dataiterator)
+                except StopIteration:                    
+                    break                               
+                
+                TF = dataset.get_Transformer()
+                input_imgs = input_data['img_PIL'].view(-1,*input_data['img_PIL'].shape[2:])              
+                iter_size = input_imgs.shape[0]
+                print('iter_size:',iter_size)
+                out_logits = []                
+                for inner_iter in range(iter_size):
+                    input_img = input_imgs[inner_iter:inner_iter+1,:,:,:]
+                    input_img = input_img.cuda()         
+                    net_outputs = IDA_Net(input_img, None)
+                    index = input_data['index']
+                    #training_stats.UpdateIterStats(net_outputs, inner_iter)
+                    #loss = net_outputs['loss']
+                    #metric = net_outputs['metric']
+                    logits = net_outputs['logits']
+                    logits = logits.numpy()
+                    logits = np.squeeze(logits,axis=0)
+                    logits = np.transpose(logits,(1,2,0))
+                    out_logits.append(logits)
+                print('index:',input_data['index'])                   
+                big_logits = TF.inverse_transform(out_logits, (1024,2048,class_num),np.float32)
+                prediction = np.array(np.argmax(big_logits,axis = -1),dtype=np.uint8)
+                save_prediction(prediction,input_data['pred_path'][0])
+        except (RuntimeError, KeyboardInterrupt):
+            exc_type, exc_obj, tb = sys.exc_info()
+            f = tb.tb_frame
+            lineno = tb.tb_lineno
+            filename = f.f_code.co_filename
+            print('EXCEPTION IN ({}, LINE {}): {}'.format(filename, lineno, exc_obj))
 
+            del dataiterator
+            logger.info('Stop prediction ...')
+        finally:
+            if args.use_tfboard and not args.no_save:
+                tblogger.close()
+        
+  
     if mode == Mode.TRAIN:
         ### Optimizer ###
         gn_param_nameset = set()
@@ -384,24 +445,23 @@ if __name__=='__main__':
 
                 training_stats.IterTic()
                 optimizer.zero_grad()
-                for inner_iter in range(args.iter_size):
-                    try:
-                        input_data = next(dataiterator)    
-                    except StopIteration:
-                        dataiterator = iter(dataloader)
-                        input_data = next(dataiterator)
-                    
-                    input_data[0] = input_data[0].view(-1,*input_data[0].shape[2:])
-                    input_data[1] = input_data[1].view(-1,*input_data[1].shape[2:])
-                    input_data[0] = input_data[0].cuda()
-                    input_data[1] = input_data[1].cuda()
-
-                    net_outputs = IDA_Net(input_data[0], input_data[1])
-                    index = input_data[2]
+                try:
+                    input_data = next(dataiterator)    
+                except StopIteration:
+                    dataiterator = iter(dataloader)
+                    input_data = next(dataiterator)
+                input_data['img_PIL'] = input_data['img_PIL'].view(-1,*input_data['img_PIL'].shape[2:])
+                input_data['gt_PIL'] = input_data['gt_PIL'].view(-1,*input_data['gt_PIL'].shape[2:])
+                iter_size = input_data['img_PIL'].shape[0]
+                for inner_iter in range(iter_size):                                        
+                    input_img = input_data['img_PIL'][inner_iter:inner_iter+1].cuda()
+                    input_gt = input_data['gt_PIL'][inner_iter:inner_iter+1].cuda()
+                    net_outputs = IDA_Net(input_img, input_gt)
+                    index = input_data['index']
                     #training_stats.UpdateIterStats(net_outputs, inner_iter)
                     loss = net_outputs['loss']
                     metric = net_outputs['metric']
-                    print('loss:%f, metric:%f, index:%d, step:%d'%(loss, metric, index, step))
+                    print('loss:%f, metric:%f, index:%d, inner_iter:%d, step:%d'%(loss, metric, index, inner_iter, step))
                     loss.backward()
                 optimizer.step()
                 training_stats.IterToc()

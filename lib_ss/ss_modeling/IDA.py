@@ -38,14 +38,14 @@ class IDA_level(nn.Module):
     self.lateralModules = nn.ModuleList()
     self.relu = nn.ReLU(inplace=True)
     self.in_dims = in_dims
-    for idx in range(len(in_dims)-1):      
+    for idx in range(len(in_dims)-1):
       #upsample to 2X size
       i_dim = in_dims[idx+1]
       o_dim = out_dims[idx]
       self.upsampleModules.append(
       nn.Sequential(
       nn.Conv2d(i_dim,o_dim,kernel_size=1,bias=False),
-      nn.GroupNorm(num_groups=2,num_channels=o_dim),
+      nn.GroupNorm(num_groups=4,num_channels=o_dim),
       nn.UpsamplingBilinear2d(scale_factor=2))
       )
       #lateral convolution
@@ -53,8 +53,8 @@ class IDA_level(nn.Module):
       o_dim = out_dims[idx]
       self.lateralModules.append(
       nn.Sequential(
-      nn.Conv2d(i_dim,o_dim,kernel_size=1,bias=False),
-      nn.GroupNorm(num_groups=2,num_channels=o_dim))
+      nn.Conv2d(i_dim,o_dim,kernel_size=3,dilation = 2,padding=2,bias=False),
+      nn.GroupNorm(num_groups=4,num_channels=o_dim))
       )
     self._init_weights()
 

@@ -1,0 +1,4 @@
+#transform trianId label to color labels.
+python visualize_predictions.py <txtfile> <output_dir>
+eg:
+python visualize_predictions.py /media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Pytorch/VOSDetectron/imdb/semantic/cityscape_test.txt /media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Pytorch/VOSDetectron/Outputs/ss/cityscapes/pred_visualize

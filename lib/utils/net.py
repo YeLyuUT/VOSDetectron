@@ -161,7 +161,13 @@ def load_ckpt(model, ckpt):
         if mapping[name]:
             state_dict[name] = ckpt[name]
     model.load_state_dict(state_dict, strict=False)
-
+    
+def load_ckpt_no_mapping(model,ckpt):
+    """Load checkpoint"""
+    state_dict = {}
+    for name in ckpt:
+        state_dict[name] = ckpt[name]
+    model.load_state_dict(state_dict, strict=False)
 
 def get_group_gn(dim):
     """

@@ -13,9 +13,9 @@ class Transformer():
                 gamma_min = 0.9, gamma_max = 1.1,
                 hue_factor_min = -0.05, hue_factor_max = 0.05,
                 saturation_factor_min = 0.9, saturation_factor_max = 1.1,
-                angle_min = -15, angle_max = 15,
-                shear_min = -15, shear_max = 15,
-                scale_min = 0.8, scale_max = 1.5,
+                angle_min = -10, angle_max = 10,
+                shear_min = -5, shear_max = 5,
+                scale_min = 0.8, scale_max = 2.0,
                 hflip = True):
     """
     expected_blob_size: (h,w)
@@ -138,10 +138,10 @@ class Transformer():
 
     for b in range(batch_size):
       self.getNewRandomCrop(img)
-      img_crop = TF.resized_crop(img,*self.crop_tuple,self.TF_params.size,interpolation = PIL.Image.BICUBIC)
+      img_crop = TF.resized_crop(img, self.crop_tuple[0], self.crop_tuple[1], self.crop_tuple[2], self.crop_tuple[3], self.TF_params.size,interpolation = PIL.Image.BICUBIC)
       img_crops.append(np.array(img_crop))
       if gt is not None:
-        gt_crop = TF.resized_crop(gt,*self.crop_tuple,self.TF_params.size,interpolation = PIL.Image.NEAREST)
+        gt_crop = TF.resized_crop(gt,self.crop_tuple[0], self.crop_tuple[1], self.crop_tuple[2], self.crop_tuple[3], self.TF_params.size,interpolation = PIL.Image.NEAREST)
         gt_crops.append(np.array(gt_crop))
     
     return img_crops, gt_crops
@@ -156,21 +156,24 @@ class Transformer_equally_spaced_crop():
         """
         self.expected_blob_size = expected_blob_size
 
-    def getCropTuples(self, img):
-        img_w, img_h = img.size
+    def getCropTuples_wh(self, img_w, img_h):
         crop_h, crop_w = self.expected_blob_size
         tuple_list = []
-        n_i = ((img_h-crop_h)+crop_h/2-1)//(crop_h/2)+1
-        n_j = ((img_w-crop_w)+crop_w/2-1)//(crop_w/2)+1
+        n_i = int(((img_h-crop_h)-1)//(crop_h/2)+2)
+        n_j = int(((img_w-crop_w)-1)//(crop_w/2)+2)
         for idy in range(n_i):
             i = min(idy*crop_h/2, img_h-crop_h)
             i = int(i)
             for idx in range(n_j):
                 j = min(idx*crop_w/2, img_w-crop_w)
                 j = int(j)
-                tuple_list.append(i,j,crop_h,crop_w)
+                tuple_list.append([i,j,crop_h,crop_w])
         return tuple_list
 
+    def getCropTuples(self, img):
+        img_w, img_h = img.size
+        return self.getCropTuples_wh(img_w, img_h)
+        
     def __call__(self,img,gt = None):
         img_crops = []
         crop_tuples = self.getCropTuples(img)
@@ -180,8 +183,39 @@ class Transformer_equally_spaced_crop():
         else:
             crop_gt_list = None
         for tup in crop_tuples:
-            crop_img = TF.resized_crop(img,*tup, 1.0, interpolation = PIL.Image.BICUBIC)
-            crop_gt = TF.resized_crop(gt,*tup, 1.0, interpolation = PIL.Image.BICUBIC)
-            crop_img_list.append(np.array(crop_img))
-            crop_gt_list.append(np.array(crop_gt))
+          crop_img = TF.resized_crop(img, tup[0],tup[1],tup[2],tup[3], self.expected_blob_size, interpolation = PIL.Image.BICUBIC)
+          if gt is not None:
+              crop_gt = TF.resized_crop(gt, tup[0],tup[1],tup[2],tup[3], self.expected_blob_size, interpolation = PIL.Image.NEAREST)
+          crop_img_list.append(np.array(crop_img))
+          if gt is not None:
+              crop_gt_list.append(np.array(crop_gt))
         return crop_img_list,crop_gt_list
+        
+    def inverse_transform(self,imgs,outputShape,dtype=np.float32):
+        '''
+        Args:
+        imgs:list of cropped images. Numpy array.
+        outputShape: shape of big outputImg.
+        dtype: dtype of outputImg.
+        '''
+        assert(isinstance(imgs,list))
+        assert(len(imgs)>0)
+        H = outputShape[0]
+        W = outputShape[1]
+        crop_tuples = self.getCropTuples_wh(W,H)
+        outTemp = np.zeros(outputShape,dtype=np.float32)
+        counter = np.zeros((H,W),dtype=np.uint8)
+        for idx in range(len(crop_tuples)):
+          tup = crop_tuples[idx]
+          img = imgs[idx]
+          assert(img.shape[0]==tup[2] and img.shape[1]==tup[3])
+          if len(outTemp.shape)==2:
+            outTemp[tup[0]:tup[0]+tup[2],tup[1]:tup[1]+tup[3]] += img[:,:]            
+          elif len(outTemp.shape)==3:
+            outTemp[tup[0]:tup[0]+tup[2],tup[1]:tup[1]+tup[3],:] += img[:,:,:]
+          else:
+            raise ValueError('Unknown image shape.')
+          counter[tup[0]:tup[0]+tup[2],tup[1]:tup[1]+tup[3]] = counter[tup[0]:tup[0]+tup[2],tup[1]:tup[1]+tup[3]]+1
+        counter = np.expand_dims(counter,axis = -1)
+        outputImg = (outTemp/counter).astype(dtype)
+        return outputImg
