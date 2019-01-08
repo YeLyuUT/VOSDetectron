@@ -18,6 +18,7 @@ import modeling.keypoint_rcnn_heads as keypoint_rcnn_heads
 import utils.blob as blob_utils
 import utils.net as net_utils
 import utils.resnet_weights_helper as resnet_utils
+from lib_vos.vos_nn.convgrucell import ConvGRUCell2d
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,17 @@ class Generalized_VOS_RCNN(nn.Module):
         # Backbone for feature extraction
         self.Conv_Body = get_func(cfg.MODEL.CONV_BODY)()
 
+        assert(cfg.FPN.FPN_ON)
         #insert temporal module for video object segmentation.
-        #self.LSTM
-
+        #As we use resNet, dims for 4 levels are hard coded.
+        fpn_dims=(2048, 1024, 512, 256)
+        h_channels = cfg.CONVGRU.HIDDEN_STATE_CHANNELS
+        self.ConvGRUs = nn.ModuleList()
+        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[0],h_channels[0],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
+        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[1],h_channels[1],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
+        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[2],h_channels[2],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
+        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[3],h_channels[3],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
+        self.hidden_states = (None,None,None,None)
         # Region Proposal Network
         if cfg.RPN.RPN_ON:
             self.RPN = rpn_heads.generic_rpn_outputs(
@@ -139,6 +148,25 @@ class Generalized_VOS_RCNN(nn.Module):
             for p in self.Conv_Body.parameters():
                 p.requires_grad = False
 
+    def _create_hidden_state(self, idx, ref_blob):
+        h_c = cfg.CONVGRU.HIDDEN_STATE_CHANNELS[idx]
+        self.hidden_states[idx] = torch.zeros([ref_blob.shape[0], h_c, ref_blob.shape[2], ref_blob.shape[3]], device = ref_blob.device)
+
+    def check_exist_hidden_states(self, ref_blobs):
+        all_exist = True
+        for i in range(4):
+            if self.hidden_states[i] is None:
+                self._create_hidden_state(i,ref_blobs[i])
+                
+    def reset_hidden_states_to_zero(self, ref_blobs):
+        assert(len(ref_blobs)==4)
+        for i in range(4):
+            self.hidden_states[i].data.zero_()
+
+    def clean_hidden_states(self):
+        for i in range(4):
+            self.hidden_states[i] = None
+
     def forward(self, data, im_info, roidb=None, **rpn_kwargs):
         if cfg.PYTORCH_VERSION_LESS_THAN_040:
             return self._forward(data, im_info, roidb, **rpn_kwargs)
@@ -156,6 +184,11 @@ class Generalized_VOS_RCNN(nn.Module):
         return_dict = {}  # A dict to collect return variables
 
         blob_conv = self.Conv_Body(im_data)
+        assert(len(blob_conv)==4)
+        self.check_exist_hidden_states(blob_conv)
+        for i in range(4):
+            #TODO add flow align here.
+            blob_conv[i] = self.ConvGRUs[i]( (blob_conv[i], self.hidden_states[i]) )
 
         rpn_ret = self.RPN(blob_conv, im_info, roidb)
 

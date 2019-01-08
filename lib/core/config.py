@@ -907,7 +907,8 @@ __C.RESNETS.USE_GN = False
 # LSTM options
 # ---------------------------------------------------------------------------- #
 __C.CONVGRU = AttrDict()
-__C.CONVGRU.HIDDEN_STATE_CHANNELS = 1024
+# Hidden states are used for 4 stages. From stage5 to stage2.
+__C.CONVGRU.HIDDEN_STATE_CHANNELS = [2048,1024,512,256]
 # Convolutional settings
 __C.CONVGRU.KERNEL_SIZE = 3
 __C.CONVGRU.STRIDE = 1
