@@ -29,7 +29,7 @@ from __future__ import unicode_literals
 import numpy as np
 
 import pycocotools.mask as mask_util
-
+import cv2
 
 def flip_segms(segms, height, width):
   """Left/right flip each mask in a list of masks."""
@@ -67,11 +67,11 @@ def polys_to_mask(polygons, height, width):
     is understood to be enclosed inside a height x width image. The resulting
     mask is therefore of shape (height, width).
     """
-  rle = mask_util.frPyObjects(polygons, height, width)
-  mask = np.array(mask_util.decode(rle), dtype=np.float32)
-  # Flatten in case polygons was a list
-  mask = np.sum(mask, axis=2)
-  mask = np.array(mask > 0, dtype=np.float32)
+    rle = mask_util.frPyObjects(polygons, height, width)
+    mask = np.array(mask_util.decode(rle), dtype=np.float32)
+    # Flatten in case polygons was a list
+    mask = np.sum(mask, axis=2)
+    mask = np.array(mask > 0, dtype=np.float32)
   return mask
 
 
@@ -89,13 +89,12 @@ def mask_to_bbox(mask):
   y1 = ys[-1]
   return np.array((x0, y0, x1, y1), dtype=np.float32)
 
-
 def polys_to_mask_wrt_box(polygons, box, M):
   """Convert from the COCO polygon segmentation format to a binary mask
     encoded as a 2D array of data type numpy.float32. The polygon segmentation
     is understood to be enclosed in the given box and rasterized to an M x M
     mask. The resulting mask is therefore of shape (M, M).
-    """
+  """
   w = box[2] - box[0]
   h = box[3] - box[1]
 
@@ -121,7 +120,16 @@ def polys_to_boxes(polys):
   """Convert a list of polygons into an array of tight bounding boxes."""
   boxes_from_polys = np.zeros((len(polys), 4), dtype=np.float32)
   for i in range(len(polys)):
-    poly = polys[i]
+    poly = polys[i]    
+    if not isinstance(poly[0],list):
+      #assert it is poly by cv2 findcontour
+      assert(isinstance(poly[0],np.ndarray))
+      assert(poly[0].shape[1:]==(1,2))
+      poly_new = [c.flatten().tolist() for c in poly]
+      poly = poly_new
+      print('cv2 type contours.')
+    else:
+      print('coco type polys.')
     x0 = min(min(p[::2]) for p in poly)
     x1 = max(max(p[::2]) for p in poly)
     y0 = min(min(p[1::2]) for p in poly)
