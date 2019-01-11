@@ -66,12 +66,12 @@ def polys_to_mask(polygons, height, width):
     encoded as a 2D array of data type numpy.float32. The polygon segmentation
     is understood to be enclosed inside a height x width image. The resulting
     mask is therefore of shape (height, width).
-    """
-    rle = mask_util.frPyObjects(polygons, height, width)
-    mask = np.array(mask_util.decode(rle), dtype=np.float32)
-    # Flatten in case polygons was a list
-    mask = np.sum(mask, axis=2)
-    mask = np.array(mask > 0, dtype=np.float32)
+  """
+  rle = mask_util.frPyObjects(polygons, height, width)
+  mask = np.array(mask_util.decode(rle), dtype=np.float32)
+  # Flatten in case polygons was a list
+  mask = np.sum(mask, axis=2)
+  mask = np.array(mask > 0, dtype=np.float32)
   return mask
 
 

@@ -4,8 +4,8 @@ import os
 import sys
 import os.path as osp
 dir_path = osp.dirname(osp.realpath(__file__))
-sys.path.append(osp.abspath(osp.join(dir_path,'../../llib')))
-import initialization as init
+sys.path.append(osp.abspath(osp.join(dir_path,'../..')))
+import llib.initialization as init
 from ss_config import cfg as config
 
 class IDA_ss_outputs(nn.Module):
@@ -14,6 +14,7 @@ class IDA_ss_outputs(nn.Module):
     self.class_num = class_num
     self.scales = config.IDA.SCALES
     self.pred = self._prediction_layer()
+    init.init_module(self,False)
 
   def _prediction_layer(self):
     i_dim = config.IDA.LEVEL0_out_dims[-1]\

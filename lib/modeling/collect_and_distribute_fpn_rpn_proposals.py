@@ -60,6 +60,7 @@ class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
             # distributing the proposals over FPN levels
             output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names()
             blobs = {k: [] for k in output_blob_names}
+            
             roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb)
         else:
             # For inference we have a special code path that avoids some data

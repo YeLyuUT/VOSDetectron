@@ -1,24 +1,38 @@
-from vos_imdb import vos_imdb
+from .vos_imdb import vos_imdb
 import sys
 import os
 from os import path as osp
 from PIL import Image
 from matplotlib import pyplot as plt
 from .config import cfg
+import cv2
+import numpy as np
 
+davis_api_home = osp.join(cfg.DAVIS.HOME,'python','lib')
+if not davis_api_home in sys.path:
+  sys.path.append(davis_api_home)
 
-home_path = osp.join(cfg.DAVIS.HOME)
-if not home_path in sys.path:
-  sys.path.append(home_path)
-
-from davis import cfg as cfg_davis,io,DAVISLoader,phase
-if not cfg_davis.COCO_API_HOME in sys.path:
-  sys.path.append(cfg_davis.COCO_API_HOME)
+from davis import cfg as cfg_davis
+from davis import io,DAVISLoader,phase
+if not cfg.COCO_API_HOME in sys.path:
+  sys.path.append(cfg.COCO_API_HOME)
 from pycocotools import mask as mask_api
 
 splits = ['train','val','trainval','test-dev']
 class DAVIS_imdb(vos_imdb):
-  def __init__(self,db_name="DAVIS",split = 'train'):
+  def __init__(self,db_name="DAVIS",split = 'train',cls_mapper = None):
+    '''
+    Args:
+    cls_mapper: VOS dataset only provides instance id label or class label that
+    is not consistent with the object detection model. As our work is to provide object 
+    detection model with the ability for VOS task, so object label is provided by the
+    prediction of object detection model. The prediction is provided by label_mapper.
+    
+    For seq_idx, instance_idx, its class label can be got by "label_mapper[seq_idx][instance_idx]".
+    
+    As some objects may be predicted as background, we choose the class with highest probability 
+    among non-background classes to be its class label.
+    '''
     super().__init__(db_name)
     self.split = split
     if split is not None:
@@ -39,7 +53,7 @@ class DAVIS_imdb(vos_imdb):
         cfg_davis.PHASE = self.phase
     print('year:',cfg_davis.YEAR)
     print('phase:',cfg_davis.PHASE.value)
-    self.db = DAVISLoader(year=cfg.YEAR,phase=cfg.PHASE)
+    self.db = DAVISLoader(year=cfg_davis.YEAR,phase=cfg_davis.PHASE)
     self.seq_idx = 0
 
   def get_num_sequence(self):
@@ -50,20 +64,42 @@ class DAVIS_imdb(vos_imdb):
     self.seq_idx = seq_idx
     
   def get_current_seq(self):
-    return db.sequences[self.seq_idx] 
+    return self.db.sequences[self.seq_idx]
 
   def get_current_seq_index(self):
     return self.seq_idx
+    
+  def get_current_seq_length(self):
+    return len(self.get_current_seq().files)
 
   def get_image(self, idx):
     seq = self.get_current_seq()
     return np.array(Image.open(seq.files[idx]))
+    
+  def get_image_cv2(self,idx):
+    seq = self.get_current_seq()
+    return cv2.imread(seq.files[idx])
 
   def get_gt_with_color(self, idx):
-    return cfg_davis.palette[db.annotations[self.seq_idx][idx]][...,[2,1,0]]
+    return cfg_davis.palette[self.db.annotations[self.seq_idx][idx]][...,[2,1,0]]
 
   def get_gt(self,idx):
-    return db.annotations[self.seq_idx][idx]
+    return self.db.annotations[self.seq_idx][idx]
+
+  def get_bboxes(self,idx):
+    gt = self.get_gt(idx)
+    vals = np.unique(gt)
+    boxes = []
+    for val in vals:
+      #it is background when val==0
+      if val !=0:
+        obj={}
+        mask = np.array(gt==val,dtype=np.uint8)
+        #make sure gt==val is converted to value in 0 and 1.
+        assert(len(set(mask.reshape(-1))-{0,1})==0)
+        x,y,w,h = cv2.boundingRect(mask)
+        boxes.append([x,y,w,h])
+    return boxes
 
   def visualize_blended_image_label(self,idx,w1=0.5,w2=0.5):
     '''
@@ -93,8 +129,16 @@ class DAVIS_imdb(vos_imdb):
     roidb['idx'] = idx
     return roidb
    
-  def prepare_roi_db(self, roidb, gt):
-    pass
+  def prepare_roi_db(self, roidb):
+    for entry in roidb:
+      self._prep_roidb_entry(entry)
+    if self.split in ['train','val','trainval']:
+      for entry in roidb:
+        seq_idx = entry['seq_idx']
+        idx = entry['idx']
+        self.set_to_sequence(seq_idx)
+        gt = get_gt(idx)
+        self._add_gt_annotations(entry,gt)
 
   def _prep_roidb_entry(self, entry):
     """Adds empty metadata fields to an roidb entry."""
@@ -117,8 +161,12 @@ class DAVIS_imdb(vos_imdb):
     # in the list of rois that satisfy np.where(entry['gt_classes'] > 0)
     entry['box_to_gt_ind_map'] = np.empty((0), dtype=np.int32)
 
+
   def _add_gt_annotations(self, entry, gt):
-    """Add ground truth annotation metadata to an roidb entry."""
+    """Add ground truth annotation metadata to an roidb entry.
+    Args:
+    gt: gt image.
+    """
     vals = np.unique(gt)
     objs = []
     for val in vals:
@@ -135,7 +183,8 @@ class DAVIS_imdb(vos_imdb):
         obj['iscrowd'] = 0
         obj['bbox'] = x,y,w,h
         #set category id by prediction.
-        obj['category_id'] = -1
+        obj['category_id'] = None
+        obj['instance_id'] = val
         objs.append(obj)
 
     # Sanitize bboxes -- some are invalid
@@ -150,10 +199,7 @@ class DAVIS_imdb(vos_imdb):
         obj['segmentation'] = [
           p for p in obj['segmentation'] if len(p) >= 6
         ]
-      if obj['area'] < cfg.TRAIN.GT_MIN_AREA:
-        continue
-      if 'ignore' in obj and obj['ignore'] == 1:
-        continue
+
       # Convert form (x1, y1, w, h) to (x1, y1, x2, y2)
       x1, y1, x2, y2 = box_utils.xywh_to_xyxy(obj['bbox'])
       x1, y1, x2, y2 = box_utils.clip_xyxy_to_image(
@@ -177,11 +223,6 @@ class DAVIS_imdb(vos_imdb):
     box_to_gt_ind_map = np.zeros(
       (num_valid_objs), dtype=entry['box_to_gt_ind_map'].dtype
     )
-    if self.keypoints is not None:
-      gt_keypoints = np.zeros(
-        (num_valid_objs, 3, self.num_keypoints),
-        dtype=entry['gt_keypoints'].dtype
-      )
 
     im_has_visible_keypoints = False
     for ix, obj in enumerate(valid_objs):
@@ -191,10 +232,6 @@ class DAVIS_imdb(vos_imdb):
       seg_areas[ix] = obj['area']
       is_crowd[ix] = obj['iscrowd']
       box_to_gt_ind_map[ix] = ix
-      if self.keypoints is not None:
-        gt_keypoints[ix, :, :] = self._get_gt_keypoints(obj)
-        if np.sum(gt_keypoints[ix, 2, :]) > 0:
-          im_has_visible_keypoints = True
       if obj['iscrowd']:
         # Set overlap to -1 for all classes for crowd objects
         # so they will be excluded during training
@@ -216,11 +253,6 @@ class DAVIS_imdb(vos_imdb):
     entry['box_to_gt_ind_map'] = np.append(
       entry['box_to_gt_ind_map'], box_to_gt_ind_map
     )
-    if self.keypoints is not None:
-      entry['gt_keypoints'] = np.append(
-          entry['gt_keypoints'], gt_keypoints, axis=0
-      )
-      entry['has_visible_keypoints'] = im_has_visible_keypoints
 
     def _add_gt_from_cache(self, roidb, cache_filepath):
       """Add ground truth annotation metadata from cached file."""
@@ -248,13 +280,8 @@ class DAVIS_imdb(vos_imdb):
         entry['box_to_gt_ind_map'] = np.append(
           entry['box_to_gt_ind_map'], box_to_gt_ind_map
         )
-        if self.keypoints is not None:
-          entry['gt_keypoints'] = np.append(
-            entry['gt_keypoints'], gt_keypoints, axis=0
-          )
-          entry['has_visible_keypoints'] = has_visible_keypoints
 
-  def _add_class_assignments(roidb):
+  def _add_class_assignments(self, roidb):
     """Compute object category assignment for each box associated with each
     roidb entry.
     """
@@ -275,11 +302,22 @@ class DAVIS_imdb(vos_imdb):
       assert all(max_classes[nonzero_inds] != 0)
 
   def get_roidb_from_sequence(self):
-    pass
+    seq_len = self.get_current_seq_length()
+    for idx in range(seq_len):
+      roidb.append(self.get_roidb_at_idx_from_sequence(idx))
+    self.prepare_roi_db(roidb)
+    return roidb
     
   def get_roidb_from_all_sequences(self):
-    pass
-
+    roidb = []
+    for seq_idx in range(self.get_num_sequence()):
+      self.set_to_sequence(seq_idx)
+      seq_len = self.get_current_seq_length()
+      for idx in range(seq_len):
+        roidb.append(self.get_roidb_at_idx_from_sequence(idx))
+    self.prepare_roi_db(roidb)
+    return roidb
+  
   def _create_db_from_label(self):
     pass
 
