@@ -5,6 +5,7 @@ from __future__ import print_function
 import argparse
 import distutils.util
 import os
+from os import path as osp
 import sys
 import pprint
 import subprocess
@@ -89,13 +90,6 @@ def main():
     args = parse_args()
     print('Called with args:')
     print(args)
-    train_db = davis_db.DAVIS_imdb(split = 'train')
-    train_db.set_to_sequence(0)
-    im = train_db.get_image_cv2(0)
-    boxes = train_db.get_bboxes(0)
-    boxes = np.array(boxes,dtype=np.float)
-    print('boxes:',boxes)
-
     print('load cfg from file: {}'.format(args.cfg_file))
     cfg_from_file(args.cfg_file)
 
@@ -112,50 +106,89 @@ def main():
         'Exactly one of --load_ckpt and --load_detectron should be specified.'
     cfg.MODEL.LOAD_IMAGENET_PRETRAINED_WEIGHTS = False  # Don't need to load imagenet pretrained weights
     assert_and_infer_cfg()
+    train_db = davis_db.DAVIS_imdb(split = 'val')
+    for seq_idx in range(train_db.get_num_sequence()):
+        train_db.set_to_sequence(seq_idx)
+        seq_name = train_db.get_current_seq_name()
+        save_dir = osp.join(args.output_dir, seq_name)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        else:
+            merge_out_path = '{}/results.pdf'.format(save_dir)
+            if osp.exists(merge_out_path):
+                continue
+        for idx in range(train_db.get_current_seq_length()):
+            im_name = '%02d.pdf'%(idx)
+            print(osp.join(save_dir, im_name))
+            if osp.exists(osp.join(save_dir, im_name)):
+                continue
+            im = train_db.get_image_cv2(idx)
+            boxes = train_db.get_bboxes(idx)
 
-    maskRCNN_predictor_with_boxes = Generalized_RCNN_Predictor_with_Boxes()
+            new_boxes = []
+            for bbox in boxes:
+                new_box = []
+                new_box.extend(bbox)
+                new_box[2] = new_box[0]+new_box[2]
+                new_box[3] = new_box[1]+new_box[3]
+                new_boxes.append(new_box)
 
-    if args.cuda:
-        maskRCNN_predictor_with_boxes.cuda()
+            boxes = np.array(new_boxes,np.float32)
+            print(boxes.shape)
+            if boxes.shape[0]>0:
+                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                #boxes = torch.tensor(boxes,device = device)
+                
+                maskRCNN_predictor_with_boxes = Generalized_RCNN_Predictor_with_Boxes()
 
-    if args.load_ckpt:
-        load_name = args.load_ckpt
-        print("loading checkpoint %s" % (load_name))
-        checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
-        net_utils.load_ckpt(maskRCNN_predictor_with_boxes, checkpoint['model'])
+                if args.cuda:
+                    maskRCNN_predictor_with_boxes.cuda()
 
-    if args.load_detectron:
-        print("loading detectron weights %s" % args.load_detectron)
-        load_detectron_weight(maskRCNN_predictor_with_boxes, args.load_detectron)
+                if args.load_ckpt:
+                    load_name = args.load_ckpt
+                    print("loading checkpoint %s" % (load_name))
+                    checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
+                    net_utils.load_ckpt(maskRCNN_predictor_with_boxes, checkpoint['model'])
 
-    maskRCNN_predictor_with_boxes = mynn.DataParallel(maskRCNN_predictor_with_boxes, cpu_keywords=['im_info', 'roidb'],
-                                 minibatch=True, device_ids=[0])  # only support single GPU
+                if args.load_detectron:
+                    print("loading detectron weights %s" % args.load_detectron)
+                    load_detectron_weight(maskRCNN_predictor_with_boxes, args.load_detectron)
 
-    maskRCNN_predictor_with_boxes.eval()
+                maskRCNN_predictor_with_boxes = mynn.DataParallel(maskRCNN_predictor_with_boxes, cpu_keywords=['im_info', 'roidb'],
+                                             minibatch=True, device_ids=[0])  # only support single GPU
 
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+                maskRCNN_predictor_with_boxes.eval()
 
-    assert im is not None
+                assert im is not None
+                timers = defaultdict(Timer)
 
-    timers = defaultdict(Timer)
+                cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN_predictor_with_boxes, im, timers=timers,box_proposals = boxes)
+            else:
+                cls_boxes = None
+                cls_segms = None
+                cls_keyps = None
+            im_name = '%02d'%(idx)
 
-    cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN_predictor_with_boxes, im, timers=timers,box_proposals = boxes)
-    im_name = 'temp_name'
-    
-    vis_utils.vis_one_image(
-        im[:, :, ::-1],  # BGR -> RGB for visualization
-        im_name,
-        args.output_dir,
-        cls_boxes,
-        cls_segms,
-        cls_keyps,
-        dataset=dataset,
-        box_alpha=0.3,
-        show_class=True,
-        thresh=0.7,
-        kp_thresh=2
-    )
+            vis_utils.vis_one_image(
+                im[:, :, ::-1],  # BGR -> RGB for visualization
+                im_name,
+                save_dir,
+                cls_boxes,
+                cls_segms,
+                cls_keyps,
+                dataset=dataset,
+                box_alpha=0.3,
+                show_class=True,
+                thresh=0.01,
+                kp_thresh=2
+            )
+        if args.merge_pdfs:
+            merge_out_path = '{}/results.pdf'.format(save_dir)
+            if os.path.exists(merge_out_path):
+                os.remove(merge_out_path)
+            command = "pdfunite {}/*.pdf {}".format(save_dir,
+                                                    merge_out_path)
+            subprocess.call(command, shell=True)
 
 if __name__ == '__main__':
     main()
