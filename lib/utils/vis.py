@@ -75,6 +75,7 @@ def convert_from_cls_format(cls_boxes, cls_segms, cls_keyps):
         boxes = np.concatenate(box_list)
     else:
         boxes = None
+
     if cls_segms is not None:
         segms = [s for slist in cls_segms for s in slist]
     else:
@@ -86,6 +87,7 @@ def convert_from_cls_format(cls_boxes, cls_segms, cls_keyps):
     classes = []
     for j in range(len(cls_boxes)):
         classes += [j] * len(cls_boxes[j])
+
     return boxes, segms, keyps, classes
 
 
@@ -103,6 +105,16 @@ def get_class_string(class_index, score, dataset):
         'id{:d}'.format(class_index)
     return class_text + ' {:0.2f}'.format(score).lstrip('0')
 
+def save_img_fig(im, im_name, output_dir,ext,dpi):
+    fig = plt.figure(frameon=False)
+    fig.set_size_inches(im.shape[1] / dpi, im.shape[0] / dpi)
+    ax = plt.Axes(fig, [0., 0., 1., 1.])
+    ax.axis('off')
+    fig.add_axes(ax)
+    ax.imshow(im)
+    output_name = os.path.basename(im_name) + '.' + ext
+    fig.savefig(os.path.join(output_dir, '{}'.format(output_name)), dpi=dpi)
+    plt.close('all')
 
 def vis_one_image(
         im, im_name, output_dir, boxes, segms=None, keypoints=None, thresh=0.9,
@@ -117,6 +129,7 @@ def vis_one_image(
             boxes, segms, keypoints)
 
     if boxes is None or boxes.shape[0] == 0 or max(boxes[:, 4]) < thresh:
+        save_img_fig(im, im_name, output_dir, ext, dpi)
         return
 
     if segms is not None:
