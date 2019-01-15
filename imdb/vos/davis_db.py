@@ -62,7 +62,10 @@ class DAVIS_imdb(vos_imdb):
   def set_to_sequence(self,seq_idx):
     assert(seq_idx>=0 and seq_idx<self.get_num_sequence())
     self.seq_idx = seq_idx
-    
+  
+  def get_current_seq_name(self):
+    return self.db.sequences[self.seq_idx].name
+  
   def get_current_seq(self):
     return self.db.sequences[self.seq_idx]
 
