@@ -12,7 +12,7 @@ extern "C" {
     i += blockDim.x * gridDim.x)
 
 
-__global__ void FlowAlignForward_kernel(const int nthreads,const  int height, const int width, const int channels, const float* bottom, const float* flow,float* top)
+__global__ void FlowAlignForward_kernel(const int nthreads,const  int height, const int width, const int channels, const double* bottom, const double* flow,double* top)
 {
 
   CUDA_1D_KERNEL_LOOP(index, nthreads)
@@ -25,11 +25,11 @@ __global__ void FlowAlignForward_kernel(const int nthreads,const  int height, co
       // get flow
       int ind_flow_x = w+h*width+n*height*width*2;
       int ind_flow_y = w+h*width+width*height+n*height*width*2;
-      float flo_x = flow[ind_flow_x];
-      float flo_y = flow[ind_flow_y];
+      double flo_x = flow[ind_flow_x];
+      double flo_y = flow[ind_flow_y];
       // get bilinear positions
-      float w_flo = w+flo_x;
-      float h_flo = h+flo_y;
+      double w_flo = w+flo_x;
+      double h_flo = h+flo_y;
       if ( h_flo<0 || h_flo>height-1 || w_flo<0 || w_flo>width-1 )
       {
         //outof image, we set it to 0.
@@ -39,8 +39,8 @@ __global__ void FlowAlignForward_kernel(const int nthreads,const  int height, co
         int h_start = floor(h_flo);
         int w_start = floor(w_flo);
         int nc_start = n*height*width*channels+c*height*width;
-        float h_ratio = h_flo - (float)h_start;
-        float w_ratio = w_flo - (float)w_start;
+        double h_ratio = h_flo - (double)h_start;
+        double w_ratio = w_flo - (double)w_start;
         int upleft = nc_start+w_start+width*h_start;
         int upright = upleft+1;
         int downleft = upleft+width;
@@ -54,7 +54,7 @@ __global__ void FlowAlignForward_kernel(const int nthreads,const  int height, co
   }
 }
 
-__global__ void FlowAlignBackward_kernel(const int nthreads, const int height, const int width, const int channels, const float* topdiff,const float* bottom, const float*flow, float* bottomdiff, float* flowdiff)
+__global__ void FlowAlignBackward_kernel(const int nthreads, const int height, const int width, const int channels, const double* topdiff,const double* bottom, const double*flow, double* bottomdiff, double* flowdiff)
 {
   CUDA_1D_KERNEL_LOOP(index, nthreads)
   {
@@ -66,11 +66,11 @@ __global__ void FlowAlignBackward_kernel(const int nthreads, const int height, c
       // get flow
       int ind_flow_x = w+h*width+n*height*width*2;
       int ind_flow_y = w+h*width+width*height+n*height*width*2;
-      float flo_x = flow[ind_flow_x];
-      float flo_y = flow[ind_flow_y];
+      double flo_x = flow[ind_flow_x];
+      double flo_y = flow[ind_flow_y];
       // get bilinear positions
-      float w_flo = w+flo_x;
-      float h_flo = h+flo_y;
+      double w_flo = w+flo_x;
+      double h_flo = h+flo_y;
       if ( h_flo<0 || h_flo>height-1 || w_flo<0 || w_flo>width-1 )
       {
         //outof image, no grad propagated.
@@ -81,8 +81,8 @@ __global__ void FlowAlignBackward_kernel(const int nthreads, const int height, c
         int h_start = floor(h_flo);
         int w_start = floor(w_flo);
         int nc_start = n*height*width*channels+c*height*width;
-        float h_ratio = h_flo - (float)h_start;
-        float w_ratio = w_flo - (float)w_start;
+        double h_ratio = h_flo - (double)h_start;
+        double w_ratio = w_flo - (double)w_start;
         int upleft = nc_start+w_start+width*h_start;
         int upright = upleft+1;
         int downleft = upleft+width;
@@ -95,30 +95,28 @@ __global__ void FlowAlignBackward_kernel(const int nthreads, const int height, c
         atomicAdd(bottomdiff+downright, topdiff[index] * (h_ratio) * (w_ratio));
 
         //approximate flow diff
-        float f1 = bottom[upleft];
-        float f2 = bottom[upright];
-        float f3 = bottom[downleft];
-        float f4 = bottom[downright];
+        double f1 = bottom[upleft];
+        double f2 = bottom[upright];
+        double f3 = bottom[downleft];
+        double f4 = bottom[downright];
         //recalculate top rather than saving it temporarily in the layer.
-        float f_x = bottom[upleft] * (1.-h_ratio) * (1.-w_ratio)
+        /*
+        top[index] = bottom[upleft] * (1.-h_ratio) * (1.-w_ratio)
                          + bottom[upright] * (1.-h_ratio) * (w_ratio)
                          + bottom[downleft] * (h_ratio) * (1.-w_ratio)
                          + bottom[downright] * (h_ratio) * (w_ratio);
+                         */        
         //calculate dx
-        float ft_1 = f3*h_ratio+f1*(1.-h_ratio);
-        float ft_2 = f4*h_ratio+f2*(1.-h_ratio);
-        float dx = (ft_2-f_x)*w_ratio/(1.-w_ratio) + (f_x-ft_1)*(1.-w_ratio)/w_ratio;
+        double dx = -f1*(1.-h_ratio) + f2*(1.-h_ratio) - f3*(h_ratio) + f4*(h_ratio);
         //calculate dy
-        float fs_1 = f2*w_ratio+f1*(1.-w_ratio);
-        float fs_2 = f4*w_ratio+f3*(1.-w_ratio);
-        float dy = (fs_2-f_x)*h_ratio/(1.-h_ratio) + (f_x-fs_1)*(1.-h_ratio)/h_ratio;
-        flowdiff[ind_flow_x] = dx;
-        flowdiff[ind_flow_y] = dy;
+        double dy = -f1*(1.-w_ratio) - f2*(w_ratio) + f3*(1.-w_ratio) + f4*(w_ratio);
+        atomicAdd(flowdiff+ind_flow_x, topdiff[index]*dx);
+        atomicAdd(flowdiff+ind_flow_y, topdiff[index]*dy);
       }
   }
 }
 
-int FlowAlignForward(const int batches, const int height, const int width, const int channels, const float* bottom, const float* flow,float* top, cudaStream_t stream)
+int FlowAlignForward(const int batches, const int height, const int width, const int channels, const double* bottom, const double* flow,double* top, cudaStream_t stream)
 {
   const int kThreadPerBlock = 512;
   const int nthreads = batches*height*width*channels;
@@ -137,7 +135,7 @@ int FlowAlignForward(const int batches, const int height, const int width, const
 }
 
 
-int FlowAlignBackward(const int batches, const int height, const int width, const int channels, const float* topdiff, const float*bottom, const float*flow, float* bottomdiff, float* flowdiff, cudaStream_t stream)
+int FlowAlignBackward(const int batches, const int height, const int width, const int channels, const double* topdiff, const double*bottom, const double*flow, double* bottomdiff, double* flowdiff, cudaStream_t stream)
 {
   const int kThreadPerBlock = 512;
   const int nthreads = batches*height*width*channels;
@@ -153,6 +151,7 @@ int FlowAlignBackward(const int batches, const int height, const int width, cons
 
   return 1;
 }
+
 
 #ifdef __cplusplus
 }

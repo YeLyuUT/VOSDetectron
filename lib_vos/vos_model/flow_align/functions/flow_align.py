@@ -1,7 +1,7 @@
 import torch
 from torch.autograd import Function
 import torch.nn as nn
-from ..ext import flow_align
+from .._ext import flow_align
 
 class FlowAlignFunction(Function):
   """
@@ -14,8 +14,8 @@ class FlowAlignFunction(Function):
     self._features = None
     
   def forward(self,features,flows):
-    self._flows = flows
-    self._features = features
+    self._flows = torch.tensor(flows)
+    self._features = torch.tensor(features)
     self.feature_size = features.size()
     batch_size_flo, num_channels_flo, data_height_flo, data_width_flo = self._flows.size()
     batch_size, num_channels, data_height, data_width = features.size()
@@ -31,11 +31,11 @@ class FlowAlignFunction(Function):
   def backward(self, grad_output):
     assert(self.feature_size is not None and grad_output.is_cuda)
     batch_size, num_channels, data_height, data_width = self.feature_size
-    grad_feature = self.rois.new(batch_size, num_channels, data_height,data_width).zero_()
+    grad_feature = self._features.new(batch_size, num_channels, data_height,data_width).zero_()
     #hard code the channel to 2
-    grad_flow = self.rois.new(batch_size, 2, data_height,data_width).zero_()
+    grad_flow = self._flows.new(batch_size, 2, data_height,data_width).zero_()
     flow_align.flow_align_backward_cuda(grad_output, self._features, self._flows, grad_feature, grad_flow)
-    self._flows = None
-    self._features = None
+    #self._flows = None
+    #self._features = None
 
     return grad_feature, grad_flow
