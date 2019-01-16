@@ -15,7 +15,7 @@ class FlowAlign(nn.Module):
     kernel_size = inv_scale
     stride = inv_scale
     conv_flow_downsample = nn.Conv2d(2,2,kernel_size = kernel_size,stride = stride,padding = 0, dilation = 1,groups = 1,bias = False)
-    init_weights = torch.zeros(conv_flow_downsample.weight.shape, dtype = torch.double)
+    init_weights = torch.zeros(conv_flow_downsample.weight.shape)
     for idx in range(init_weights.shape[0]):
       init_weights[idx,idx,:,:] = spatial_scale**3
     conv_flow_downsample.weight = torch.nn.Parameter(init_weights)

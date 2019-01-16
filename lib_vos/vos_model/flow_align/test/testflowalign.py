@@ -72,14 +72,14 @@ def test_flow_align():
   flow_in = readflo(inFlowPath)
   g_h = 202
   g_w = 202
-  sz = 20
-  flow_in = flow_in.astype(np.float64)[g_h:g_h+sz,g_w:g_w+sz,:]
+  sz = 40
+  flow_in = flow_in.astype(np.float32)[g_h:g_h+sz,g_w:g_w+sz,:]
   flow_in = flow_in.transpose([2,0,1])
   flow_in = np.expand_dims(flow_in,axis=0)
   tensor_in_flo = torch.tensor(flow_in, requires_grad=True).cuda()
   npImg = np.array(Image.open(inImgPath))
   npImg = npImg[g_h:g_h+sz,g_w:g_w+sz,:]
-  npImg = np.array(Image.fromarray(npImg).resize((npImg.shape[1]//2,npImg.shape[0]//2), Image.ANTIALIAS),dtype=np.float64)
+  npImg = np.array(Image.fromarray(npImg).resize((npImg.shape[1]//2,npImg.shape[0]//2), Image.ANTIALIAS),dtype=np.float32)
   npImg = npImg.transpose([2,0,1])
   npImg = np.expand_dims(npImg,axis=0)
   tensor_in_im = torch.tensor(npImg, requires_grad=True).cuda()
@@ -102,7 +102,7 @@ def test_flow_align():
 
 def grad_check(func,inputs):
   from torch.autograd import gradcheck
-  return gradcheck(func,inputs,eps=1e-7,atol=1e-5)
+  return gradcheck(func,inputs,eps=1e-2,atol=1e-2)
 
 if __name__=='__main__':
   #test_down_sample()
