@@ -31,13 +31,14 @@ def binary_mask_to_rle(binary_mask):
   return rle
 
 class DAVIS_imdb(vos_imdb):
-  def __init__(self,db_name="DAVIS",split = 'train',cls_mapper = None):
+  def __init__(self,db_name="DAVIS", split = 'train', cls_mapper = None):
     '''
     Args:
-    cls_mapper: VOS dataset only provides instance id label or class label that
+    cls_mapper(dict type): VOS dataset only provides instance id label or class label that
     is not consistent with the object detection model. As our work is to provide object 
     detection model with the ability for VOS task, so object label is provided by the
     prediction of object detection model. The prediction is provided by label_mapper.
+    If set None, no class is assigned. Otherwise, category_id = cls_mapper[instance_id].
     
     For seq_idx, instance_idx, its class label can be got by "label_mapper[seq_idx][instance_idx]".
     
@@ -66,7 +67,10 @@ class DAVIS_imdb(vos_imdb):
     print('phase:',cfg_davis.PHASE.value)
     self.db = DAVISLoader(year=cfg_davis.YEAR,phase=cfg_davis.PHASE)
     self.seq_idx = 0
-    
+    self.cls_mapper = None
+    if cls_mapper is not None:
+      assert(isinstance(cls_mapper, dict))
+      self.cls_mapper = cls_mapper
     # Here we adopt COCO classes.
     self.COCO = COCO(DATASETS[name][ANN_FN])
     category_ids = self.COCO.getCatIds()
@@ -160,11 +164,7 @@ class DAVIS_imdb(vos_imdb):
       self._prep_roidb_entry(entry)
     if self.split in ['train','val','trainval']:
       for entry in roidb:
-        seq_idx = entry['seq_idx']
-        idx = entry['idx']
-        self.set_to_sequence(seq_idx)
-        gt = get_gt(idx)
-        self._add_gt_annotations(entry,gt)
+        self._add_gt_annotations(entry)
 
   def _prep_roidb_entry(self, entry):
     """Adds empty metadata fields to an roidb entry."""
@@ -188,11 +188,14 @@ class DAVIS_imdb(vos_imdb):
     entry['box_to_gt_ind_map'] = np.empty((0), dtype=np.int32)
 
 
-  def _add_gt_annotations(self, entry, gt):
+  def _add_gt_annotations(self, entry):
     """Add ground truth annotation metadata to an roidb entry.
-    Args:
-    gt: gt image.
     """
+    seq_idx = entry['seq_idx']
+    idx = entry['idx']
+    self.set_to_sequence(seq_idx)
+    #get gt image.
+    gt = self.get_gt(idx)
     vals = np.unique(gt)
     objs = []
     for val in vals:
@@ -208,8 +211,11 @@ class DAVIS_imdb(vos_imdb):
         obj['area'] = np.sum(mask)
         obj['iscrowd'] = 0
         obj['bbox'] = x,y,w,h
-        #set category id by prediction.
-        obj['category_id'] = None
+        if self.cls_mapper is not None:
+          #set category id by cls_mapper.
+          obj['category_id'] = self.cls_mapper[val]
+        else:
+          obj['category_id'] = None
         obj['instance_id'] = val
         objs.append(obj)
 
@@ -296,8 +302,6 @@ class DAVIS_imdb(vos_imdb):
       values = [cached_entry[key] for key in self.valid_cached_keys]
       boxes, segms, gt_classes, seg_areas, gt_overlaps, is_crowd, \
         box_to_gt_ind_map = values[:7]
-      if self.keypoints is not None:
-        gt_keypoints, has_visible_keypoints = values[7:]
       entry['boxes'] = np.append(entry['boxes'], boxes, axis=0)
       entry['segms'].extend(segms)
       # To match the original implementation:
@@ -331,21 +335,68 @@ class DAVIS_imdb(vos_imdb):
       nonzero_inds = np.where(max_overlaps > 0)[0]
       assert all(max_classes[nonzero_inds] != 0)
 
-  def get_roidb_from_sequence(self):
-    seq_len = self.get_current_seq_length()
-    for idx in range(seq_len):
-      roidb.append(self.get_roidb_at_idx_from_sequence(idx))
-    self.prepare_roi_db(roidb)
+  def get_roidb_from_seq_idx_sequence(self, seq_idx):
+    roidb = []
+    # Include ground-truth object annotations
+    if not osp.isdir(cfg.CACHE_DIR):
+        os.mkdirs(cfg.CACHE_DIR)
+        assert(osp.isdir(cfg.CACHE_DIR))
+    cache_filepath = os.path.join(cfg.CACHE_DIR, self.name+'_%d_sequence_roidb.pkl'%(seq_idx))
+    if os.path.exists(cache_filepath) and not cfg.DEBUG:
+        self.debug_timer.tic()
+        self._add_gt_from_cache(roidb, cache_filepath)
+        logger.debug(
+            '_add_gt_from_cache took {:.3f}s'.
+            format(self.debug_timer.toc(average=False))
+        )
+    else:
+        self.debug_timer.tic()
+        self.set_to_sequence(seq_idx)
+        seq_len = self.get_current_seq_length()
+        for idx in range(seq_len):
+          roidb.append(self.get_roidb_at_idx_from_sequence(idx))
+        self.prepare_roi_db(roidb)
+        logger.debug(
+            '_add_gt_annotations took {:.3f}s'.
+            format(self.debug_timer.toc(average=False))
+        )
+        if not cfg.DEBUG:
+            with open(cache_filepath, 'wb') as fp:
+                pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
+            logger.info('Cache ground truth roidb to %s', cache_filepath)
     return roidb
+
     
   def get_roidb_from_all_sequences(self):
     roidb = []
-    for seq_idx in range(self.get_num_sequence()):
-      self.set_to_sequence(seq_idx)
-      seq_len = self.get_current_seq_length()
-      for idx in range(seq_len):
-        roidb.append(self.get_roidb_at_idx_from_sequence(idx))
-    self.prepare_roi_db(roidb)
+    # Include ground-truth object annotations
+    if not osp.isdir(cfg.CACHE_DIR):
+        os.mkdirs(cfg.CACHE_DIR)
+        assert(osp.isdir(cfg.CACHE_DIR))
+    cache_filepath = os.path.join(cfg.CACHE_DIR, self.name+'_all_sequences_roidb.pkl')
+    if os.path.exists(cache_filepath) and not cfg.DEBUG:
+        self.debug_timer.tic()
+        self._add_gt_from_cache(roidb, cache_filepath)
+        logger.debug(
+            '_add_gt_from_cache took {:.3f}s'.
+            format(self.debug_timer.toc(average=False))
+        )
+    else:
+        self.debug_timer.tic()
+        for seq_idx in range(self.get_num_sequence()):
+          self.set_to_sequence(seq_idx)
+          seq_len = self.get_current_seq_length()
+          for idx in range(seq_len):
+            roidb.append(self.get_roidb_at_idx_from_sequence(idx))
+        self.prepare_roi_db(roidb)
+        logger.debug(
+            '_add_gt_annotations took {:.3f}s'.
+            format(self.debug_timer.toc(average=False))
+        )
+        if not cfg.DEBUG:
+            with open(cache_filepath, 'wb') as fp:
+                pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
+            logger.info('Cache ground truth roidb to %s', cache_filepath)
     return roidb
   
   def _create_db_from_label(self):

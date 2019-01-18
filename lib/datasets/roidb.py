@@ -32,7 +32,15 @@ from core.config import cfg
 from .json_dataset import JsonDataset
 
 logger = logging.getLogger(__name__)
+from os import path as osp
+import sys
+def addPath(path):
+  if path not in sys.path:
+    sys.path.append(path)
 
+davis_db_path = osp.abspath('../../imdb/vos/')
+addPath(davis_db_path)
+from davis_db import DAVIS_imdb
 
 def combined_roidb_for_training(dataset_names, proposal_files):
     """Load and concatenate roidbs for one or more datasets, along with optional
@@ -40,12 +48,21 @@ def combined_roidb_for_training(dataset_names, proposal_files):
     which involves caching certain types of metadata for each roidb entry.
     """
     def get_roidb(dataset_name, proposal_file):
-        ds = JsonDataset(dataset_name)
-        roidb = ds.get_roidb(
-            gt=True,
-            proposal_file=proposal_file,
-            crowd_filter_thresh=cfg.TRAIN.CROWD_FILTER_THRESH
-        )
+        roidb = None
+        dataset_name = dataset_name.lower()
+        if 'davis' in dataset_name:
+          name, split = dataset_name.split('_')
+          #year = '2017', split = 'train'
+          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None)
+          roidb = ds.get_roidb_from_all_sequences()
+        else:
+          #default load coco dataset.
+          ds = JsonDataset(dataset_name)
+          roidb = ds.get_roidb(
+              gt=True,
+              proposal_file=proposal_file,
+              crowd_filter_thresh=cfg.TRAIN.CROWD_FILTER_THRESH
+          )
         if cfg.TRAIN.USE_FLIPPED:
             logger.info('Appending horizontally-flipped training examples...')
             extend_with_flipped_entries(roidb, ds)
