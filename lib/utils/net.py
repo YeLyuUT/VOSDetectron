@@ -156,10 +156,14 @@ def save_ckpt(output_dir, args, model, optimizer):
 def load_ckpt(model, ckpt):
     """Load checkpoint"""
     mapping, _ = model.detectron_weight_mapping
-    state_dict = {}
+    state_dict = {}    
     for name in ckpt:
         if mapping[name]:
             state_dict[name] = ckpt[name]
+    model_weights_not_in_ckpt = set(model.state_dict().keys())-set(state_dict.keys())
+    ckpt_weights_not_in_model = set(ckpt.keys())-set(state_dict().keys())
+    print('load check point---following model weights not in ckpt:',model_weights_not_in_ckpt)
+    print('load check point---following ckpt weights not in model:',ckpt_weights_not_in_model)
     model.load_state_dict(state_dict, strict=False)
     
 def load_ckpt_no_mapping(model,ckpt):
@@ -167,6 +171,10 @@ def load_ckpt_no_mapping(model,ckpt):
     state_dict = {}
     for name in ckpt:
         state_dict[name] = ckpt[name]
+    model_weights_not_in_ckpt = set(model.state_dict().keys())-set(state_dict.keys())
+    ckpt_weights_not_in_model = set(ckpt.keys())-set(state_dict().keys())
+    print('load check point---following model weights not in ckpt:',model_weights_not_in_ckpt)
+    print('load check point---following ckpt weights not in model:',ckpt_weights_not_in_model)
     model.load_state_dict(state_dict, strict=False)
 
 def get_group_gn(dim):

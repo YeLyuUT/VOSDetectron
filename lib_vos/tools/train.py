@@ -328,6 +328,7 @@ def main():
         load_name = args.load_ckpt
         logging.info("loading checkpoint %s", load_name)
         checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
+        #TODO: load_ckpt_no_mapping(maskRCNN, checkpoint['model'])
         net_utils.load_ckpt(maskRCNN, checkpoint['model'])
         if args.resume:
             args.start_step = checkpoint['step'] + 1
