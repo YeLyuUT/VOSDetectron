@@ -43,7 +43,6 @@ def get_func(func_name):
         logger.error('Failed to find function: %s', func_name)
         raise
 
-
 def compare_state_dict(sa, sb):
     if sa.keys() != sb.keys():
         return False
@@ -51,7 +50,6 @@ def compare_state_dict(sa, sb):
         if not torch.equal(va, sb[k]):
             return False
     return True
-
 
 def check_inference(net_func):
     @wraps(net_func)

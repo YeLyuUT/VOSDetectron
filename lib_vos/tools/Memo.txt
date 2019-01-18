@@ -1,0 +1,25 @@
+train_coco_static:
+[-f]:no flow and flow align module.
+ability: proposal+cls+mask
+
+train_davis_static(for reference):
+[-f]:no flow and flow align module.
+[pp]:losses for positive proposals only. Need high recall.
+[id]:add identity branch and losses. Use global ID(id only, no background) to get feature generator.
+ability: proposal+cls+mask+id(static id difference across all images. Mimic ReID.)
+
+train_davis_dynamic:
+[f]:with flow and flow align module.
+[pp]:losses for positive proposals only. Need high recall.
+[id]:add identity branch and losses. Use local ID(id+background), online ID mapper. 
+ability: proposal+cls+mask+id(dynamic proposal,cls,mask,id propagation,id differences in every frame.)
+
+offline_davis_test_training(all test sequence first frame):
+[-f]:no flow and flow align module.
+[pp]:losses for positive proposals only. Need high recall.
+[id]:add identity branch and losses.(static id difference)
+
+online_davis_test_training:
+[-f]:no flow and flow align module.
+[pp]:losses for positive proposals only. Need high recall.
+[id]:add identity branch and losses.(static id difference)
