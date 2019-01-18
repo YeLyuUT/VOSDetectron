@@ -67,6 +67,7 @@ test_*
 lib_ss/Output
 Questions.txt
 lib_vos/tools/Output
+lib_vos/tools/Outputs
 
 #flo
 *.flo
