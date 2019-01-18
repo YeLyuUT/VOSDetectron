@@ -31,6 +31,11 @@ import numpy as np
 import pycocotools.mask as mask_util
 import cv2
 
+def rle_to_mask(rle, dtype=np.float32):
+  assert(isinstance(rle,dict))
+  mask = np.array(mask_util.decode(rle)>0).astype(dtype)
+  return mask
+
 def flip_segms(segms, height, width):
   """Left/right flip each mask in a list of masks."""
 
@@ -100,19 +105,27 @@ def polys_to_mask_wrt_box(polygons, box, M):
 
   w = np.maximum(w, 1)
   h = np.maximum(h, 1)
+  mask = None
+  if isinstance(polygons[0], dict):
+    assert(len(polygons)==1)
+    x1,y1,x2,y2 = box
+    dsize = (M,M)
+    mask = rle_to_mask(poly)
+    mask = cv2.resize(mask[y1:y2+1,x1:x2+1],dsize = dsize,interpolation = cv2.INTER_NEAREST)
+    mask = np.array(mask > 0, dtype=np.float32)
+  else:
+    polygons_norm = []
+    for poly in polygons:
+      p = np.array(poly, dtype=np.float32)
+      p[0::2] = (p[0::2] - box[0]) * M / w
+      p[1::2] = (p[1::2] - box[1]) * M / h
+      polygons_norm.append(p)
 
-  polygons_norm = []
-  for poly in polygons:
-    p = np.array(poly, dtype=np.float32)
-    p[0::2] = (p[0::2] - box[0]) * M / w
-    p[1::2] = (p[1::2] - box[1]) * M / h
-    polygons_norm.append(p)
-
-  rle = mask_util.frPyObjects(polygons_norm, M, M)
-  mask = np.array(mask_util.decode(rle), dtype=np.float32)
-  # Flatten in case polygons was a list
-  mask = np.sum(mask, axis=2)
-  mask = np.array(mask > 0, dtype=np.float32)
+    rle = mask_util.frPyObjects(polygons_norm, M, M)
+    mask = np.array(mask_util.decode(rle), dtype=np.float32)
+    # Flatten in case polygons was a list
+    mask = np.sum(mask, axis=2)
+    mask = np.array(mask > 0, dtype=np.float32)
   return mask
 
 
@@ -121,19 +134,24 @@ def polys_to_boxes(polys):
   boxes_from_polys = np.zeros((len(polys), 4), dtype=np.float32)
   for i in range(len(polys)):
     poly = polys[i]    
-    if not isinstance(poly[0],list):
-      #assert it is poly by cv2 findcontour
-      assert(isinstance(poly[0],np.ndarray))
-      assert(poly[0].shape[1:]==(1,2))
-      poly_new = [c.flatten().tolist() for c in poly]
-      poly = poly_new
-      print('cv2 type contours.')
+    if isinstance(poly,dict):
+      #polygon in rle format
+      #print('polygon to boxes(rle format).')
+      mask = rle_to_mask(poly,np.uint8)
+      assert(mask.ndim==2)
+      rows = np.any(mask, axis=1)
+      cols = np.any(mask, axis=0)
+      rmin, rmax = np.where(rows)[0][[0, -1]]
+      cmin, cmax = np.where(cols)[0][[0, -1]]
+      x0 = cmin
+      x1 = cmax
+      y0 = rmin
+      y1 = rmax
     else:
-      print('coco type polys.')
-    x0 = min(min(p[::2]) for p in poly)
-    x1 = max(max(p[::2]) for p in poly)
-    y0 = min(min(p[1::2]) for p in poly)
-    y1 = max(max(p[1::2]) for p in poly)
+      x0 = min(min(p[::2]) for p in poly)
+      x1 = max(max(p[::2]) for p in poly)
+      y0 = min(min(p[1::2]) for p in poly)
+      y1 = max(max(p[1::2]) for p in poly)
     boxes_from_polys[i, :] = [x0, y0, x1, y1]
 
   return boxes_from_polys

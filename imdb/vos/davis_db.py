@@ -16,9 +16,20 @@ from davis import cfg as cfg_davis
 from davis import io,DAVISLoader,phase
 if not cfg.COCO_API_HOME in sys.path:
   sys.path.append(cfg.COCO_API_HOME)
-from pycocotools import mask as mask_api
+from pycocotools import mask as COCOmask
+from pycocotools.coco import COCO
 
 splits = ['train','val','trainval','test-dev']
+
+def binary_mask_to_rle(binary_mask):
+  rle = {'counts': [], 'size': list(binary_mask.shape)}
+  counts = rle.get('counts')
+  for i, (value, elements) in enumerate(groupby(binary_mask.ravel(order='F'))):
+    if i == 0 and value == 1:
+        counts.append(0)
+    counts.append(len(list(elements)))
+  return rle
+
 class DAVIS_imdb(vos_imdb):
   def __init__(self,db_name="DAVIS",split = 'train',cls_mapper = None):
     '''
@@ -55,6 +66,18 @@ class DAVIS_imdb(vos_imdb):
     print('phase:',cfg_davis.PHASE.value)
     self.db = DAVISLoader(year=cfg_davis.YEAR,phase=cfg_davis.PHASE)
     self.seq_idx = 0
+    
+    # Here we adopt COCO classes.
+    self.COCO = COCO(DATASETS[name][ANN_FN])
+    category_ids = self.COCO.getCatIds()
+    categories = [c['name'] for c in self.COCO.loadCats(category_ids)]
+    self.category_to_id_map = dict(zip(categories, category_ids))
+    self.classes = ['__background__'] + categories + ['__unknown__']
+    self.num_classes = len(self.classes)
+    self.json_category_id_to_contiguous_id = {
+        v: i + 1
+        for i, v in enumerate(self.COCO.getCatIds())
+    }
 
   def get_num_sequence(self):
     return len(self.db.sequences)
@@ -181,7 +204,7 @@ class DAVIS_imdb(vos_imdb):
         assert(len(set(mask.reshape(-1))-{0,1})==0)
         x,y,w,h = cv2.boundingRect(mask)
 
-        obj['segmentation'] = mask_api.encode(mask)
+        obj['segmentation'] = binary_mask_to_rle(np.np.asfortranarray(mask))
         obj['area'] = np.sum(mask)
         obj['iscrowd'] = 0
         obj['bbox'] = x,y,w,h
@@ -229,7 +252,11 @@ class DAVIS_imdb(vos_imdb):
 
     im_has_visible_keypoints = False
     for ix, obj in enumerate(valid_objs):
-      cls = self.json_category_id_to_contiguous_id[obj['category_id']]
+      if 'category_id' is not None:
+        cls = self.json_category_id_to_contiguous_id[obj['category_id']]
+      else:
+        #if no category_id specified, use background instead. index is 'self.num_classes-1'
+        cls = self.num_classes-1
       boxes[ix, :] = obj['clean_bbox']
       gt_classes[ix] = cls
       seg_areas[ix] = obj['area']
@@ -257,32 +284,32 @@ class DAVIS_imdb(vos_imdb):
       entry['box_to_gt_ind_map'], box_to_gt_ind_map
     )
 
-    def _add_gt_from_cache(self, roidb, cache_filepath):
-      """Add ground truth annotation metadata from cached file."""
-      logger.info('Loading cached gt_roidb from %s', cache_filepath)
-      with open(cache_filepath, 'rb') as fp:
-        cached_roidb = pickle.load(fp)
+  def _add_gt_from_cache(self, roidb, cache_filepath):
+    """Add ground truth annotation metadata from cached file."""
+    logger.info('Loading cached gt_roidb from %s', cache_filepath)
+    with open(cache_filepath, 'rb') as fp:
+      cached_roidb = pickle.load(fp)
 
-      assert len(roidb) == len(cached_roidb)
+    assert len(roidb) == len(cached_roidb)
 
-      for entry, cached_entry in zip(roidb, cached_roidb):
-        values = [cached_entry[key] for key in self.valid_cached_keys]
-        boxes, segms, gt_classes, seg_areas, gt_overlaps, is_crowd, \
-          box_to_gt_ind_map = values[:7]
-        if self.keypoints is not None:
-          gt_keypoints, has_visible_keypoints = values[7:]
-        entry['boxes'] = np.append(entry['boxes'], boxes, axis=0)
-        entry['segms'].extend(segms)
-        # To match the original implementation:
-        # entry['boxes'] = np.append(
-        #     entry['boxes'], boxes.astype(np.int).astype(np.float), axis=0)
-        entry['gt_classes'] = np.append(entry['gt_classes'], gt_classes)
-        entry['seg_areas'] = np.append(entry['seg_areas'], seg_areas)
-        entry['gt_overlaps'] = scipy.sparse.csr_matrix(gt_overlaps)
-        entry['is_crowd'] = np.append(entry['is_crowd'], is_crowd)
-        entry['box_to_gt_ind_map'] = np.append(
-          entry['box_to_gt_ind_map'], box_to_gt_ind_map
-        )
+    for entry, cached_entry in zip(roidb, cached_roidb):
+      values = [cached_entry[key] for key in self.valid_cached_keys]
+      boxes, segms, gt_classes, seg_areas, gt_overlaps, is_crowd, \
+        box_to_gt_ind_map = values[:7]
+      if self.keypoints is not None:
+        gt_keypoints, has_visible_keypoints = values[7:]
+      entry['boxes'] = np.append(entry['boxes'], boxes, axis=0)
+      entry['segms'].extend(segms)
+      # To match the original implementation:
+      # entry['boxes'] = np.append(
+      #     entry['boxes'], boxes.astype(np.int).astype(np.float), axis=0)
+      entry['gt_classes'] = np.append(entry['gt_classes'], gt_classes)
+      entry['seg_areas'] = np.append(entry['seg_areas'], seg_areas)
+      entry['gt_overlaps'] = scipy.sparse.csr_matrix(gt_overlaps)
+      entry['is_crowd'] = np.append(entry['is_crowd'], is_crowd)
+      entry['box_to_gt_ind_map'] = np.append(
+        entry['box_to_gt_ind_map'], box_to_gt_ind_map
+      )
 
   def _add_class_assignments(self, roidb):
     """Compute object category assignment for each box associated with each
