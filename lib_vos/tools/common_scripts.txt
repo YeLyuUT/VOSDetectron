@@ -1,5 +1,5 @@
 #train static VOS MRCNN model
-python ./train.py --dataset coco2017 --cfg ./R-101-FPN_3x_gn_static_training.yaml --disp_interval 50 --nw 8 --o SGD --use_tfboard --load_detectron '../../data/pretrained_model/R-101-GN.pkl'
+python ./train_coco.py --dataset coco2017 --cfg ./R-101-FPN_3x_gn_static_training.yaml --disp_interval 50 --nw 8 --o SGD --use_tfboard --load_detectron '../../data/pretrained_model/R-101-GN.pkl'
 
 #predict for boxes
 python get_cls_mapper.py --cfg '../../configs/gn_baselines/e2e_mask_rcnn_R-101-FPN_3x_gn.yaml'  --load_ckpt '../../Outputs/e2e_mask_rcnn_R-101-FPN_3x_gn/Dec10-10-12-55_UT143397_step/ckpt/model_step236664.pth' --output_dir './Output'
