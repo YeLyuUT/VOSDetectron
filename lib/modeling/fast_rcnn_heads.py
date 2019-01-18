@@ -10,13 +10,13 @@ import utils.net as net_utils
 
 
 class fast_rcnn_outputs(nn.Module):
-    def __init__(self, dim_in):
+    def __init__(self, dim_in, num_classes):
         super().__init__()
-        self.cls_score = nn.Linear(dim_in, cfg.MODEL.NUM_CLASSES)
+        self.cls_score = nn.Linear(dim_in, num_classes)
         if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:  # bg and fg
             self.bbox_pred = nn.Linear(dim_in, 4 * 2)
         else:
-            self.bbox_pred = nn.Linear(dim_in, 4 * cfg.MODEL.NUM_CLASSES)
+            self.bbox_pred = nn.Linear(dim_in, 4 * num_classes)
 
         self._init_weights()
 
@@ -48,11 +48,11 @@ class fast_rcnn_outputs(nn.Module):
 
 
 def fast_rcnn_losses(cls_score, bbox_pred, label_int32, bbox_targets,
-                     bbox_inside_weights, bbox_outside_weights):
+                     bbox_inside_weights, bbox_outside_weights,cls_weights=None):
     device_id = cls_score.get_device()
     rois_label = Variable(torch.from_numpy(label_int32.astype('int64'))).cuda(device_id)
-    loss_cls = F.cross_entropy(cls_score, rois_label)
-
+    loss_cls = F.cross_entropy(cls_score, rois_label, weight=cls_weights)
+    
     bbox_targets = Variable(torch.from_numpy(bbox_targets)).cuda(device_id)
     bbox_inside_weights = Variable(torch.from_numpy(bbox_inside_weights)).cuda(device_id)
     bbox_outside_weights = Variable(torch.from_numpy(bbox_outside_weights)).cuda(device_id)

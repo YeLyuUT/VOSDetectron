@@ -19,11 +19,11 @@ import utils.net as net_utils
 
 class mask_rcnn_outputs(nn.Module):
     """Mask R-CNN specific outputs: either mask logits or probs."""
-    def __init__(self, dim_in):
+    def __init__(self, dim_in, num_classes):
         super().__init__()
         self.dim_in = dim_in
 
-        n_classes = cfg.MODEL.NUM_CLASSES if cfg.MRCNN.CLS_SPECIFIC_MASK else 1
+        n_classes = num_classes if cfg.MRCNN.CLS_SPECIFIC_MASK else 1
         if cfg.MRCNN.USE_FC_OUTPUT:
             # Predict masks with a fully connected layer
             self.classify = nn.Linear(dim_in, n_classes * cfg.MRCNN.RESOLUTION**2)

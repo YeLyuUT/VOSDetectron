@@ -1,6 +1,7 @@
 """ Training script for steps_with_decay policy"""
 import argparse
 import os
+from os import path as osp
 import sys
 import pickle
 import resource
@@ -16,14 +17,25 @@ import torch.nn as nn
 import cv2
 cv2.setNumThreads(0)  # pytorch issue 1355: possible deadlock in dataloader
 
-import _init_paths  # pylint: disable=unused-import
+def addPath(path):
+    if path not in sys.path:
+        sys.path.append(path)
+
+home = osp.abspath('../..')
+lib_vos_path = osp.abspath('../../lib_vos')
+lib_path = osp.abspath('../../lib')
+addPath(lib_vos_path)
+addPath(lib_path)
+addPath(home)
+#import _init_paths  # pylint: disable=unused-import
 import nn as mynn
 import utils.net as net_utils
 import utils.misc as misc_utils
 from core.config import cfg, cfg_from_file, cfg_from_list, assert_and_infer_cfg
 from datasets.roidb import combined_roidb_for_training
 from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
-from modeling.model_builder import Generalized_RCNN
+#from modeling.model_builder import Generalized_RCNN
+from vos_modeling import vos_model_builder
 from utils.detectron_weight_helper import load_detectron_weight
 from utils.logging import setup_logging
 from utils.timer import Timer
@@ -151,12 +163,16 @@ def main():
 
     if args.dataset == "coco2017":
         cfg.TRAIN.DATASETS = ('coco_2017_train',)
-        cfg.MODEL.NUM_CLASSES = 81
+        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
     elif args.dataset == "keypoints_coco2017":
         cfg.TRAIN.DATASETS = ('keypoints_coco_2017_train',)
         cfg.MODEL.NUM_CLASSES = 2
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
+
+    #Add unknow class type if necessary.
+    if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
+        cfg.MODEL.NUM_CLASSES +=1
 
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
@@ -173,6 +189,8 @@ def main():
         'batch_size: %d, NUM_GPUS: %d' % (args.batch_size, cfg.NUM_GPUS)
     cfg.TRAIN.IMS_PER_BATCH = args.batch_size // cfg.NUM_GPUS
     effective_batch_size = args.iter_size * args.batch_size
+    
+
     print('effective_batch_size = batch_size * iter_size = %d * %d' % (args.batch_size, args.iter_size))
 
     print('Adaptive config changes:')
@@ -252,7 +270,7 @@ def main():
     dataiterator = iter(dataloader)
 
     ### Model ###
-    maskRCNN = Generalized_RCNN()
+    maskRCNN = vos_model_builder.Generalized_VOS_RCNN()
 
     if cfg.CUDA:
         maskRCNN.cuda()
@@ -330,7 +348,7 @@ def main():
 
     if args.load_detectron:  #TODO resume for detectron weights (load sgd momentum values)
         logging.info("loading Detectron weights %s", args.load_detectron)
-        load_detectron_weight(maskRCNN, args.load_detectron)
+        load_detectron_weight(maskRCNN, args.load_detectron,force_load_all=False)
 
     lr = optimizer.param_groups[0]['lr']  # lr of non-bias parameters, for commmand line outputs.
 
@@ -438,9 +456,9 @@ def main():
 
     except (RuntimeError, KeyboardInterrupt):
         del dataiterator
-        logger.info('Save ckpt on exception ...')
-        save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
-        logger.info('Save ckpt done.')
+        #logger.info('Save ckpt on exception ...')
+        #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
+        #logger.info('Save ckpt done.')
         stack_trace = traceback.format_exc()
         print(stack_trace)
 

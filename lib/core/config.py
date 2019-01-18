@@ -385,6 +385,8 @@ __C.TEST.BBOX_VOTE.SCORING_METHOD = 'ID'
 # different methods)
 __C.TEST.BBOX_VOTE.SCORING_METHOD_BETA = 1.0
 
+#One proposal can generate multiple bboxes for different classes if set True.
+#__C.TEST.ONE_PROPOSAL_ONE_BOX = False
 
 # ---------------------------------------------------------------------------- #
 # Model options
@@ -402,7 +404,7 @@ __C.MODEL.CONV_BODY = ''
 # Number of classes in the dataset; must be set
 # E.g., 81 for COCO (80 foreground + 1 background)
 __C.MODEL.NUM_CLASSES = -1
-
+__C.MODEL.ADD_UNKNOWN_CLASS = False
 # Use a class agnostic bounding box regressor instead of the default per-class
 # regressor
 __C.MODEL.CLS_AGNOSTIC_BBOX_REG = False
@@ -908,7 +910,8 @@ __C.RESNETS.USE_GN = False
 # ---------------------------------------------------------------------------- #
 __C.CONVGRU = AttrDict()
 # Hidden states are used for 4 stages. From stage5 to stage2.
-__C.CONVGRU.HIDDEN_STATE_CHANNELS = [2048,1024,512,256]
+__C.CONVGRU.HIDDEN_STATE_CHANNELS = [256,256,256,256,256]
+#__C.CONVGRU.HIDDEN_STATE_CHANNELS = [64,256,512,1024,2048]
 # Convolutional settings
 __C.CONVGRU.KERNEL_SIZE = 3
 __C.CONVGRU.STRIDE = 1
@@ -917,6 +920,8 @@ __C.CONVGRU.GROUPS = 1
 # Use group normalization if USE_GN is True, else use bias term for ConvGRU
 __C.CONVGRU.USE_GN = True
 __C.CONVGRU.GN_GROUPS = 32
+# Use for per image prediction.
+__C.CONVGRU.DYNAMIC_MODEL = True
 
 # ---------------------------------------------------------------------------- #
 # GroupNorm options

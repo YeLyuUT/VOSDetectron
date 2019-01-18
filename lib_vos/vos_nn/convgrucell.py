@@ -65,7 +65,7 @@ class ConvGRUCell2d(nn.Module):
 
     def init_func(m):
       if isinstance(m,nn.Conv2d):
-        mymm.init.XavierFill(m.weight)
+        mynn.init.XavierFill(m.weight)
         if m.bias is not None:
           init.constant_(m.bias,0)
     for m in self.children():

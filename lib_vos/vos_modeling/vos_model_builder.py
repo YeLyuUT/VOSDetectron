@@ -82,15 +82,15 @@ class Generalized_VOS_RCNN(nn.Module):
 
         assert(cfg.FPN.FPN_ON)
         #insert temporal module for video object segmentation.
-        #As we use resNet, dims for 4 levels are hard coded.
-        fpn_dims=(2048, 1024, 512, 256)
+        #As we use resNet, dims for 5 levels are hard coded.
+        #fpn_dims=(2048, 1024, 512, 256, 64)
+        fpn_dims = [cfg.FPN.DIM]*5
         h_channels = cfg.CONVGRU.HIDDEN_STATE_CHANNELS
         self.ConvGRUs = nn.ModuleList()
-        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[0],h_channels[0],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
-        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[1],h_channels[1],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
-        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[2],h_channels[2],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
-        self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[3],h_channels[3],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
-        self.hidden_states = (None,None,None,None)
+        for i in range(len(fpn_dims)):
+            self.ConvGRUs.append(ConvGRUCell2d(fpn_dims[i], h_channels[i],kernel_size=3, stride=1, dilation=1, groups=1, use_GN=True,GN_groups = 32))
+
+        self.hidden_states = [None,None,None,None,None]
         # Region Proposal Network
         if cfg.RPN.RPN_ON:
             self.RPN = rpn_heads.generic_rpn_outputs(
@@ -115,7 +115,7 @@ class Generalized_VOS_RCNN(nn.Module):
             self.Box_Head = get_func(cfg.FAST_RCNN.ROI_BOX_HEAD)(
                 self.RPN.dim_out, self.roi_feature_transform, self.Conv_Body.spatial_scale)
             self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(
-                self.Box_Head.dim_out)
+                self.Box_Head.dim_out, cfg.MODEL.NUM_CLASSES)
 
         # Mask Branch
         if cfg.MODEL.MASK_ON:
@@ -123,7 +123,7 @@ class Generalized_VOS_RCNN(nn.Module):
                 self.RPN.dim_out, self.roi_feature_transform, self.Conv_Body.spatial_scale)
             if getattr(self.Mask_Head, 'SHARE_RES5', False):
                 self.Mask_Head.share_res5_module(self.Box_Head.res5)
-            self.Mask_Outs = mask_rcnn_heads.mask_rcnn_outputs(self.Mask_Head.dim_out)
+            self.Mask_Outs = mask_rcnn_heads.mask_rcnn_outputs(self.Mask_Head.dim_out, cfg.MODEL.NUM_CLASSES)
 
         # Keypoints Branch
         if cfg.MODEL.KEYPOINTS_ON:
@@ -152,19 +152,26 @@ class Generalized_VOS_RCNN(nn.Module):
         h_c = cfg.CONVGRU.HIDDEN_STATE_CHANNELS[idx]
         self.hidden_states[idx] = torch.zeros([ref_blob.shape[0], h_c, ref_blob.shape[2], ref_blob.shape[3]], device = ref_blob.device)
 
+    def create_hidden_states(self, ref_blobs):
+        for i in range(5):
+            if self.hidden_states[i] is None:
+                self._create_hidden_state(i,ref_blobs[i])
+            else:
+                self.hidden_states[i] = None
+                self._create_hidden_state(i,ref_blobs[i])
+
     def check_exist_hidden_states(self, ref_blobs):
-        all_exist = True
-        for i in range(4):
+        assert(len(ref_blobs)==5)
+        for i in range(5):
             if self.hidden_states[i] is None:
                 self._create_hidden_state(i,ref_blobs[i])
                 
-    def reset_hidden_states_to_zero(self, ref_blobs):
-        assert(len(ref_blobs)==4)
-        for i in range(4):
+    def reset_hidden_states_to_zero(self):        
+        for i in range(len(self.hidden_states)):
             self.hidden_states[i].data.zero_()
 
     def clean_hidden_states(self):
-        for i in range(4):
+        for i in range(len(self.hidden_states)):
             self.hidden_states[i] = None
 
     def forward(self, data, im_info, roidb=None, **rpn_kwargs):
@@ -184,12 +191,18 @@ class Generalized_VOS_RCNN(nn.Module):
         return_dict = {}  # A dict to collect return variables
 
         blob_conv = self.Conv_Body(im_data)
-        assert(len(blob_conv)==4)
-        self.check_exist_hidden_states(blob_conv)
-        for i in range(4):
+    
+        assert(len(blob_conv)==5)
+        
+        self.create_hidden_states(blob_conv)
+        for i in range(5):
             #TODO add flow align here.
             blob_conv[i] = self.ConvGRUs[i]( (blob_conv[i], self.hidden_states[i]) )
-
+        if cfg.CONVGRU.DYNAMIC_MODEL is True:
+          #if dynamic model, hidden_states need to be updated.
+          #TODO
+          pass
+        
         rpn_ret = self.RPN(blob_conv, im_info, roidb)
 
         # if self.training:
@@ -232,9 +245,11 @@ class Generalized_VOS_RCNN(nn.Module):
                 return_dict['losses']['loss_rpn_bbox'] = loss_rpn_bbox
 
             # bbox loss
+            if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
+              cls_weights = torch.tensor([1.]*(cfg.MODEL.NUM_CLASSES-1)+[0.], device=cls_score.device)
             loss_cls, loss_bbox, accuracy_cls = fast_rcnn_heads.fast_rcnn_losses(
                 cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],
-                rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'])
+                rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'], cls_weights = cls_weights)
             return_dict['losses']['loss_cls'] = loss_cls
             return_dict['losses']['loss_bbox'] = loss_bbox
             return_dict['metrics']['accuracy_cls'] = accuracy_cls
@@ -389,7 +404,7 @@ class Generalized_VOS_RCNN(nn.Module):
             d_wmap = {}  # detectron_weight_mapping
             d_orphan = []  # detectron orphan weight list
             for name, m_child in self.named_children():
-                if list(m_child.parameters()):  # if module has any parameter
+                if list(m_child.parameters()) and hasattr(m_child, 'detectron_weight_mapping'):  # if module has any parameter                
                     child_map, child_orphan = m_child.detectron_weight_mapping()
                     d_orphan.extend(child_orphan)
                     for key, value in child_map.items():
