@@ -13,9 +13,17 @@ if not davis_api_home in sys.path:
   sys.path.append(davis_api_home)
 
 from davis import cfg as cfg_davis
-from davis import io,DAVISLoader,phase
+from davis import io,DAVISLoader,phase  
+
+dataset_lib = osp.abspath('../../lib/')
+if not dataset_lib in sys.path:
+  sys.path.append(dataset_lib)
+  
+from datasets.dataset_catalog import ANN_FN
+from datasets.dataset_catalog import DATASETS
 if not cfg.COCO_API_HOME in sys.path:
   sys.path.append(cfg.COCO_API_HOME)
+
 from pycocotools import mask as COCOmask
 from pycocotools.coco import COCO
 
@@ -72,7 +80,8 @@ class DAVIS_imdb(vos_imdb):
       assert(isinstance(cls_mapper, dict))
       self.cls_mapper = cls_mapper
     # Here we adopt COCO classes.
-    self.COCO = COCO(DATASETS[name][ANN_FN])
+    
+    self.COCO = COCO(DATASETS['coco_2017_train'][ANN_FN])
     category_ids = self.COCO.getCatIds()
     categories = [c['name'] for c in self.COCO.loadCats(category_ids)]
     self.category_to_id_map = dict(zip(categories, category_ids))
@@ -82,6 +91,20 @@ class DAVIS_imdb(vos_imdb):
         v: i + 1
         for i, v in enumerate(self.COCO.getCatIds())
     }
+    self.number_of_instance_ids = 0
+    self.global_instance_id_start_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
+    self.instance_number_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
+    self.set_global_instance_id_start()
+
+  @property
+  def valid_cached_keys(self):
+      """ Can load following key-ed values from the cached roidb file
+
+      'image'(image path) and 'flipped' values are already filled on _prep_roidb_entry,
+      so we don't need to overwrite it again.
+      """
+      keys = ['boxes', 'segms', 'gt_classes', 'instance_id', 'global_instance_id', 'seg_areas', 'gt_overlaps','gt_overlaps_id', 'is_crowd', 'box_to_gt_ind_map']
+      return keys
 
   def get_num_sequence(self):
     return len(self.db.sequences)
@@ -131,6 +154,28 @@ class DAVIS_imdb(vos_imdb):
         boxes.append([x,y,w,h])
     return boxes
 
+  def set_global_instance_id_start(self):
+      #start from 1. 0 is reserved for background.      
+      accumulate = 1
+      self.global_instance_id_start_of_seq[0] = accumulate
+      for seq_idx in range(self.get_num_sequence()-1):
+        if self.instance_number_of_seq[seq_idx] == 0:
+          self.set_to_sequence(seq_idx)
+          #get gt from first frame.
+          gt = self.get_gt(idx=0)
+          #len(np.unique(gt))-1 as there is background in vals.
+          self.instance_number_of_seq[seq_idx] = len(np.unique(gt))-1
+        accumulate += self.instance_number_of_seq[seq_idx]
+        self.global_instance_id_start_of_seq[seq_idx+1] = accumulate
+      print('instance_number_of_seq:',self.instance_number_of_seq)
+      print('global_instance_id_start_of_seq:',self.global_instance_id_start_of_seq)
+      self.number_of_instance_ids = accumulate+self.instance_number_of_seq[self.get_num_sequence()-1]
+      print('Total global instance id number(include background):%d'%(self.number_of_instance_ids))
+      
+      
+  def set_number_of_instance(self, seq_idx, num_instances):
+      self.instance_number_of_seq[seq_idx] = num_instances
+
   def visualize_blended_image_label(self,idx,w1=0.5,w2=0.5):
     '''
     Args:
@@ -178,9 +223,15 @@ class DAVIS_imdb(vos_imdb):
     entry['boxes'] = np.empty((0, 4), dtype=np.float32)
     entry['segms'] = []
     entry['gt_classes'] = np.empty((0), dtype=np.int32)
+    entry['global_instance_id'] = np.empty((0), dtype=np.int32)
+    entry['instance_id'] = np.empty((0), dtype=np.int32)
+    
     entry['seg_areas'] = np.empty((0), dtype=np.float32)
     entry['gt_overlaps'] = scipy.sparse.csr_matrix(
         np.empty((0, self.num_classes), dtype=np.float32)
+    )
+    entry['gt_overlaps_id'] = scipy.sparse.csr_matrix(
+        np.empty((0, self.number_of_instance_ids), dtype=np.float32)
     )
     entry['is_crowd'] = np.empty((0), dtype=np.bool)
     # 'box_to_gt_ind_map': Shape is (#rois). Maps from each roi to the index
@@ -197,6 +248,7 @@ class DAVIS_imdb(vos_imdb):
     #get gt image.
     gt = self.get_gt(idx)
     vals = np.unique(gt)
+    
     objs = []
     for val in vals:
       #it is background when val==0
@@ -217,6 +269,9 @@ class DAVIS_imdb(vos_imdb):
         else:
           obj['category_id'] = None
         obj['instance_id'] = val
+        assert(self.global_instance_id_start_of_seq[seq_idx]!=0)
+        # val-1 to remove background.
+        obj['global_instance_id'] = self.global_instance_id_start_of_seq[seq_idx]+val-1
         objs.append(obj)
 
     # Sanitize bboxes -- some are invalid
@@ -246,9 +301,15 @@ class DAVIS_imdb(vos_imdb):
 
     boxes = np.zeros((num_valid_objs, 4), dtype=entry['boxes'].dtype)
     gt_classes = np.zeros((num_valid_objs), dtype=entry['gt_classes'].dtype)
+    instance_id = np.zeros((num_valid_objs), dtype=entry['instance_id'].dtype)
+    global_instance_id = np.zeros((num_valid_objs), dtype=entry['global_instance_id'].dtype)
     gt_overlaps = np.zeros(
       (num_valid_objs, self.num_classes),
       dtype=entry['gt_overlaps'].dtype
+    )
+    gt_overlaps_id = np.zeros(
+      (num_valid_objs, self.number_of_instance_ids),
+      dtype=entry['gt_overlaps_id'].dtype
     )
     seg_areas = np.zeros((num_valid_objs), dtype=entry['seg_areas'].dtype)
     is_crowd = np.zeros((num_valid_objs), dtype=entry['is_crowd'].dtype)
@@ -265,6 +326,8 @@ class DAVIS_imdb(vos_imdb):
         cls = self.num_classes-1
       boxes[ix, :] = obj['clean_bbox']
       gt_classes[ix] = cls
+      instance_id[ix] = obj['instance_id']
+      global_instance_id[ix] = obj['global_instance_id']
       seg_areas[ix] = obj['area']
       is_crowd[ix] = obj['iscrowd']
       box_to_gt_ind_map[ix] = ix
@@ -272,19 +335,28 @@ class DAVIS_imdb(vos_imdb):
         # Set overlap to -1 for all classes for crowd objects
         # so they will be excluded during training
         gt_overlaps[ix, :] = -1.0
+        gt_overlaps_id[ix,:] = -1.0
       else:
         gt_overlaps[ix, cls] = 1.0
+        gt_overlaps_id[ix, global_instance_id[ix]] = 1.0
     entry['boxes'] = np.append(entry['boxes'], boxes, axis=0)
     entry['segms'].extend(valid_segms)
     # To match the original implementation:
     # entry['boxes'] = np.append(
     #     entry['boxes'], boxes.astype(np.int).astype(np.float), axis=0)
     entry['gt_classes'] = np.append(entry['gt_classes'], gt_classes)
+    entry['instance_id'] = np.append(entry['instance_id'], instance_id)
+    entry['global_instance_id'] = np.append(entry['global_instance_id'], global_instance_id)
     entry['seg_areas'] = np.append(entry['seg_areas'], seg_areas)
     entry['gt_overlaps'] = np.append(
       entry['gt_overlaps'].toarray(), gt_overlaps, axis=0
     )
     entry['gt_overlaps'] = scipy.sparse.csr_matrix(entry['gt_overlaps'])
+    
+    entry['gt_overlaps_id'] = np.append(
+      entry['gt_overlaps_id'].toarray(), gt_overlaps_id, axis=0
+    )
+    entry['gt_overlaps_id'] = scipy.sparse.csr_matrix(entry['gt_overlaps_id'])    
     entry['is_crowd'] = np.append(entry['is_crowd'], is_crowd)
     entry['box_to_gt_ind_map'] = np.append(
       entry['box_to_gt_ind_map'], box_to_gt_ind_map
@@ -300,62 +372,51 @@ class DAVIS_imdb(vos_imdb):
 
     for entry, cached_entry in zip(roidb, cached_roidb):
       values = [cached_entry[key] for key in self.valid_cached_keys]
-      boxes, segms, gt_classes, seg_areas, gt_overlaps, is_crowd, \
-        box_to_gt_ind_map = values[:7]
+      boxes, segms, gt_classes, instance_id, global_instance_id, seg_areas, gt_overlaps, gt_overlaps_id, is_crowd, \
+        box_to_gt_ind_map = values[:10]
       entry['boxes'] = np.append(entry['boxes'], boxes, axis=0)
       entry['segms'].extend(segms)
       # To match the original implementation:
       # entry['boxes'] = np.append(
       #     entry['boxes'], boxes.astype(np.int).astype(np.float), axis=0)
       entry['gt_classes'] = np.append(entry['gt_classes'], gt_classes)
+      entry['instance_id'] = np.append(entry['instance_id'], instance_id)
+      entry['global_instance_id'] = np.append(entry['global_instance_id'], global_instance_id)
       entry['seg_areas'] = np.append(entry['seg_areas'], seg_areas)
       entry['gt_overlaps'] = scipy.sparse.csr_matrix(gt_overlaps)
+      entry['gt_overlaps_id'] = scipy.sparse.csr_matrix(gt_overlaps_id)
       entry['is_crowd'] = np.append(entry['is_crowd'], is_crowd)
       entry['box_to_gt_ind_map'] = np.append(
         entry['box_to_gt_ind_map'], box_to_gt_ind_map
       )
 
-  def _add_class_assignments(self, roidb):
-    """Compute object category assignment for each box associated with each
-    roidb entry.
-    """
-    for entry in roidb:
-      gt_overlaps = entry['gt_overlaps'].toarray()
-      # max overlap with gt over classes (columns)
-      max_overlaps = gt_overlaps.max(axis=1)
-      # gt class that had the max overlap
-      max_classes = gt_overlaps.argmax(axis=1)
-      entry['max_classes'] = max_classes
-      entry['max_overlaps'] = max_overlaps
-      # sanity checks
-      # if max overlap is 0, the class must be background (class 0)
-      zero_inds = np.where(max_overlaps == 0)[0]
-      assert all(max_classes[zero_inds] == 0)
-      # if max overlap > 0, the class must be a fg class (not class 0)
-      nonzero_inds = np.where(max_overlaps > 0)[0]
-      assert all(max_classes[nonzero_inds] != 0)
-
   def get_roidb_from_seq_idx_sequence(self, seq_idx):
     roidb = []
+    
+    self.debug_timer.tic()
+    self.set_to_sequence(seq_idx)
+    seq_len = self.get_current_seq_length()
+    for idx in range(seq_len):
+      roidb.append(self.get_roidb_at_idx_from_sequence(idx))
+
+    for entry in roidb:
+      self._prep_roidb_entry(entry)
+ 
     # Include ground-truth object annotations
     if not osp.isdir(cfg.CACHE_DIR):
-        os.mkdirs(cfg.CACHE_DIR)
-        assert(osp.isdir(cfg.CACHE_DIR))
+      os.mkdirs(cfg.CACHE_DIR)
+      assert(osp.isdir(cfg.CACHE_DIR))
     cache_filepath = os.path.join(cfg.CACHE_DIR, self.name+'_%d_sequence_roidb.pkl'%(seq_idx))
     if os.path.exists(cache_filepath) and not cfg.DEBUG:
-        self.debug_timer.tic()
         self._add_gt_from_cache(roidb, cache_filepath)
         logger.debug(
             '_add_gt_from_cache took {:.3f}s'.
             format(self.debug_timer.toc(average=False))
         )
     else:
-        self.debug_timer.tic()
-        self.set_to_sequence(seq_idx)
-        seq_len = self.get_current_seq_length()
-        for idx in range(seq_len):
-          roidb.append(self.get_roidb_at_idx_from_sequence(idx))
-        self.prepare_roi_db(roidb)
+      if self.split in ['train','val','trainval']:
+        for entry in roidb:
+          self._add_gt_annotations(entry)
         logger.debug(
             '_add_gt_annotations took {:.3f}s'.
             format(self.debug_timer.toc(average=False))
@@ -369,34 +430,42 @@ class DAVIS_imdb(vos_imdb):
     
   def get_roidb_from_all_sequences(self):
     roidb = []
+    self.debug_timer.tic()
+    for seq_idx in range(self.get_num_sequence()):
+      self.set_to_sequence(seq_idx)
+      seq_len = self.get_current_seq_length()
+      for idx in range(seq_len):
+        roidb.append(self.get_roidb_at_idx_from_sequence(idx))
+    
+    for entry in roidb:
+      self._prep_roidb_entry(entry)
     # Include ground-truth object annotations
     if not osp.isdir(cfg.CACHE_DIR):
         os.mkdirs(cfg.CACHE_DIR)
         assert(osp.isdir(cfg.CACHE_DIR))
     cache_filepath = os.path.join(cfg.CACHE_DIR, self.name+'_all_sequences_roidb.pkl')
     if os.path.exists(cache_filepath) and not cfg.DEBUG:
-        self.debug_timer.tic()
         self._add_gt_from_cache(roidb, cache_filepath)
         logger.debug(
             '_add_gt_from_cache took {:.3f}s'.
             format(self.debug_timer.toc(average=False))
         )
+    logger.debug(
+        '_add_gt_annotations took {:.3f}s'.
+        format(self.debug_timer.toc(average=False))
+    )
     else:
-        self.debug_timer.tic()
-        for seq_idx in range(self.get_num_sequence()):
-          self.set_to_sequence(seq_idx)
-          seq_len = self.get_current_seq_length()
-          for idx in range(seq_len):
-            roidb.append(self.get_roidb_at_idx_from_sequence(idx))
-        self.prepare_roi_db(roidb)
+      if self.split in ['train','val','trainval']:
+        for entry in roidb:
+          self._add_gt_annotations(entry)
         logger.debug(
             '_add_gt_annotations took {:.3f}s'.
             format(self.debug_timer.toc(average=False))
-        )
-        if not cfg.DEBUG:
-            with open(cache_filepath, 'wb') as fp:
-                pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
-            logger.info('Cache ground truth roidb to %s', cache_filepath)
+        )      
+      if not cfg.DEBUG:
+          with open(cache_filepath, 'wb') as fp:
+              pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
+          logger.info('Cache ground truth roidb to %s', cache_filepath)
     return roidb
   
   def _create_db_from_label(self):
@@ -404,3 +473,140 @@ class DAVIS_imdb(vos_imdb):
 
 
 
+def add_proposals(roidb, rois, scales, crowd_thresh):
+    """Add proposal boxes (rois) to an roidb that has ground-truth annotations
+    but no proposals. If the proposals are not at the original image scale,
+    specify the scale factor that separate them in scales.
+    """
+    box_list = []
+    for i in range(len(roidb)):
+        inv_im_scale = 1. / scales[i]
+        idx = np.where(rois[:, 0] == i)[0]
+        box_list.append(rois[idx, 1:] * inv_im_scale)
+    _merge_proposal_boxes_into_roidb(roidb, box_list)
+    if crowd_thresh > 0:
+        _filter_crowd_proposals(roidb, crowd_thresh)
+    _add_class_assignments(roidb)
+
+def _merge_proposal_boxes_into_roidb(roidb, box_list):
+    """Add proposal boxes to each roidb entry."""
+    assert len(box_list) == len(roidb)
+    for i, entry in enumerate(roidb):
+        boxes = box_list[i]
+        num_boxes = boxes.shape[0]
+        gt_overlaps = np.zeros(
+            (num_boxes, entry['gt_overlaps'].shape[1]),
+            dtype=entry['gt_overlaps'].dtype
+        )
+        
+        gt_overlaps_id = np.zeros(
+            (num_boxes, entry['gt_overlaps_id'].shape[1]),
+            dtype=entry['gt_overlaps_id'].dtype
+        )
+                
+        box_to_gt_ind_map = -np.ones(
+            (num_boxes), dtype=entry['box_to_gt_ind_map'].dtype
+        )
+
+        # Note: unlike in other places, here we intentionally include all gt
+        # rois, even ones marked as crowd. Boxes that overlap with crowds will
+        # be filtered out later (see: _filter_crowd_proposals).
+        gt_inds = np.where(entry['gt_classes'] > 0)[0]
+        if len(gt_inds) > 0:
+            gt_boxes = entry['boxes'][gt_inds, :]
+            gt_classes = entry['gt_classes'][gt_inds]
+            global_instance_id = entry['global_instance_id'][gt_inds]
+            
+            proposal_to_gt_overlaps = box_utils.bbox_overlaps(
+                boxes.astype(dtype=np.float32, copy=False),
+                gt_boxes.astype(dtype=np.float32, copy=False)
+            )
+            # Gt box that overlaps each input box the most
+            # (ties are broken arbitrarily by class order)
+            argmaxes = proposal_to_gt_overlaps.argmax(axis=1)
+            # Amount of that overlap
+            maxes = proposal_to_gt_overlaps.max(axis=1)
+            # Those boxes with non-zero overlap with gt boxes
+            I = np.where(maxes > 0)[0]
+            # Record max overlaps with the class of the appropriate gt box
+            gt_overlaps[I, gt_classes[argmaxes[I]]] = maxes[I]
+            gt_overlaps_id[I,global_instance_id[argmaxes[I]]] = maxes[I]
+            
+            box_to_gt_ind_map[I] = gt_inds[argmaxes[I]]
+        entry['boxes'] = np.append(
+            entry['boxes'],
+            boxes.astype(entry['boxes'].dtype, copy=False),
+            axis=0
+        )
+        entry['gt_classes'] = np.append(
+            entry['gt_classes'],
+            np.zeros((num_boxes), dtype=entry['gt_classes'].dtype)
+        )
+        entry['seg_areas'] = np.append(
+            entry['seg_areas'],
+            np.zeros((num_boxes), dtype=entry['seg_areas'].dtype)
+        )
+        entry['gt_overlaps'] = np.append(
+            entry['gt_overlaps'].toarray(), gt_overlaps, axis=0
+        )
+        entry['gt_overlaps'] = scipy.sparse.csr_matrix(entry['gt_overlaps'])
+        
+        entry['gt_overlaps_id'] = np.append(
+            entry['gt_overlaps_id'].toarray(), gt_overlaps_id, axis=0
+        )
+        entry['gt_overlaps_id'] = scipy.sparse.csr_matrix(entry['gt_overlaps_id'])
+        
+        entry['is_crowd'] = np.append(
+            entry['is_crowd'],
+            np.zeros((num_boxes), dtype=entry['is_crowd'].dtype)
+        )
+        entry['box_to_gt_ind_map'] = np.append(
+            entry['box_to_gt_ind_map'],
+            box_to_gt_ind_map.astype(
+                entry['box_to_gt_ind_map'].dtype, copy=False
+            )
+        )
+
+def _add_class_assignments(self, roidb):
+    """Compute object category assignment for each box associated with each
+    roidb entry.
+    """
+    for entry in roidb:
+      gt_overlaps = entry['gt_overlaps'].toarray()
+      # max overlap with gt over classes (columns)
+      max_overlaps = gt_overlaps.max(axis=1)
+      # gt class that had the max overlap
+      max_classes = gt_overlaps.argmax(axis=1)
+      entry['max_classes'] = max_classes
+      entry['max_overlaps'] = max_overlaps
+      
+      gt_overlaps_id = entry['gt_overlaps_id'].toarray()
+      # max overlap with gt over classes (columns)
+      max_overlaps_id = gt_overlaps_id.max(axis=1)
+      # gt class that had the max overlap
+      max_global_id = gt_overlaps_id.argmax(axis=1)
+      entry['max_global_id'] = max_global_id
+      entry['max_overlaps_id'] = max_overlaps_id
+      
+      # sanity checks
+      # if max overlap is 0, the class must be background (class 0)
+      zero_inds = np.where(max_overlaps == 0)[0]
+      assert all(max_classes[zero_inds] == 0)
+      # if max overlap > 0, the class must be a fg class (not class 0)
+      nonzero_inds = np.where(max_overlaps > 0)[0]
+      assert all(max_classes[nonzero_inds] != 0)
+      
+      # sanity checks
+      # if max overlap id is 0, the id must be background (id 0)
+      zero_inds = np.where(max_overlaps_id == 0)[0]
+      assert all(max_global_id[zero_inds] == 0)
+      # if max overlap id > 0, the id must be a fg id (not id 0)
+      nonzero_inds = np.where(max_overlaps_id > 0)[0]
+      assert all(max_global_id[nonzero_inds] != 0)
+
+def _sort_proposals(proposals, id_field):
+  """Sort proposals by the specified id field."""
+  order = np.argsort(proposals[id_field])
+  fields_to_sort = ['boxes', id_field, 'scores']
+  for k in fields_to_sort:
+      proposals[k] = [proposals[k][i] for i in order]

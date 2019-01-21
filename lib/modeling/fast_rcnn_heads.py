@@ -10,14 +10,15 @@ import utils.net as net_utils
 
 
 class fast_rcnn_outputs(nn.Module):
-    def __init__(self, dim_in, num_classes):
+    def __init__(self, dim_in, num_classes, num_ids=None):
         super().__init__()
         self.cls_score = nn.Linear(dim_in, num_classes)
         if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:  # bg and fg
             self.bbox_pred = nn.Linear(dim_in, 4 * 2)
         else:
             self.bbox_pred = nn.Linear(dim_in, 4 * num_classes)
-
+        if cfg.MODEL.IDENTITY_TRAINING:
+            self.identity_score = nn.Linear(dim_in, num_ids)            
         self._init_weights()
 
     def _init_weights(self):
@@ -25,6 +26,9 @@ class fast_rcnn_outputs(nn.Module):
         init.constant_(self.cls_score.bias, 0)
         init.normal_(self.bbox_pred.weight, std=0.001)
         init.constant_(self.bbox_pred.bias, 0)
+        if cfg.MODEL.IDENTITY_TRAINING:
+          init.normal_(self.identity_pred.weight, std=0.001)
+          init.constant_(self.identity_pred.bias, 0)
 
     def detectron_weight_mapping(self):
         detectron_weight_mapping = {
@@ -42,16 +46,21 @@ class fast_rcnn_outputs(nn.Module):
         cls_score = self.cls_score(x)
         if not self.training:
             cls_score = F.softmax(cls_score, dim=1)
-        bbox_pred = self.bbox_pred(x)
-
-        return cls_score, bbox_pred
-
+        if cfg.MODEL.IDENTITY_TRAINING:
+            id_score = self.identity_score(x)
+            if not self.training:
+              id_score = F.softmax(id_score, dim=1)
+        bbox_pred = self.bbox_pred(x)                  
+        if not cfg.MODEL.IDENTITY_TRAINING:
+          return cls_score, bbox_pred
+        else:
+          return cls_score, bbox_pred, id_score
 
 def fast_rcnn_losses(cls_score, bbox_pred, label_int32, bbox_targets,
-                     bbox_inside_weights, bbox_outside_weights,cls_weights=None):
+                     bbox_inside_weights, bbox_outside_weights,cls_weights=None,id_score = None, id_int32 = None):
     device_id = cls_score.get_device()
     rois_label = Variable(torch.from_numpy(label_int32.astype('int64'))).cuda(device_id)
-    loss_cls = F.cross_entropy(cls_score, rois_label, weight=cls_weights)
+    loss_cls = F.cross_entropy(cls_score, rois_label, weight=cls_weights)        
     
     bbox_targets = Variable(torch.from_numpy(bbox_targets)).cuda(device_id)
     bbox_inside_weights = Variable(torch.from_numpy(bbox_inside_weights)).cuda(device_id)
@@ -62,8 +71,17 @@ def fast_rcnn_losses(cls_score, bbox_pred, label_int32, bbox_targets,
     # class accuracy
     cls_preds = cls_score.max(dim=1)[1].type_as(rois_label)
     accuracy_cls = cls_preds.eq(rois_label).float().mean(dim=0)
-
-    return loss_cls, loss_bbox, accuracy_cls
+    
+    #id loss and accuracy    
+    if not id_score is None and not id_int32 is None:
+      id_label = Variable(torch.from_numpy(id_int32.astype('int64'))).cuda(device_id)
+      loss_id = F.cross_entropy(id_score, id_label)
+            
+      id_preds = id_score.max(dim=1)[1].type_as(rois_label)
+      accuracy_id = id_preds.eq(id_label).float().mean(dim=0)
+      return loss_cls, loss_bbox, accuracy_cls, loss_id, accuracy_id
+    else:
+      return loss_cls, loss_bbox, accuracy_cls
 
 
 # ---------------------------------------------------------------------------- #

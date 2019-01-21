@@ -16,7 +16,6 @@ import torch.nn as nn
 from torch.nn import init
 import yaml
 
-import nn as mynn
 from easydict import EasyDict as AttrDict
 
 __C = AttrDict()
@@ -30,3 +29,5 @@ __C.COCO_API_HOME = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Dat
 #directory contains davis api tools.
 __C.DAVIS = AttrDict()
 __C.DAVIS.HOME = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Dataset/DAVIS/davis-2017'
+
+

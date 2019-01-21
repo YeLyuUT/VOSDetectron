@@ -906,7 +906,7 @@ __C.RESNETS.IMAGENET_PRETRAINED_WEIGHTS = ''
 __C.RESNETS.USE_GN = False
 
 # ---------------------------------------------------------------------------- #
-# LSTM options
+# CONV-GRU options
 # ---------------------------------------------------------------------------- #
 __C.CONVGRU = AttrDict()
 # Hidden states are used for 4 stages. From stage5 to stage2.
@@ -922,6 +922,16 @@ __C.CONVGRU.USE_GN = True
 __C.CONVGRU.GN_GROUPS = 32
 # Use for per image prediction.
 __C.CONVGRU.DYNAMIC_MODEL = True
+
+# ---------------------------------------------------------------------------- #
+# VIDEO options
+# ---------------------------------------------------------------------------- #
+__C.VIDEO = AttrDict()
+__C.MODEL.IDENTITY_TRAINING = False
+# Dynamically determine the instance number
+__C.MODEL.TOTAL_INSTANCE_NUM = 0
+__C.VIDEO.TRAIN.SEQUENCE_LENGTH = 5
+__C.VIDEO.TEST.SEQUENCE_LENGTH = 3
 
 # ---------------------------------------------------------------------------- #
 # GroupNorm options

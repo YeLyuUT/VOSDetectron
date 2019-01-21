@@ -79,7 +79,7 @@ def im_detect_all(model, im, box_proposals=None, timers=None):
     timers['misc_bbox'].tic()
     scores, boxes, cls_boxes = box_results_with_nms_and_limit(scores, boxes)
     timers['misc_bbox'].toc()
-
+    
     if cfg.MODEL.MASK_ON and boxes.shape[0] > 0:
         timers['im_detect_mask'].tic()
         if cfg.TEST.MASK_AUG.ENABLED:
@@ -128,6 +128,7 @@ def im_conv_body_only(model, im, target_scale, target_max_size):
 def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
     """Prepare the bbox for testing"""
     inputs, im_scale = _get_blobs(im, boxes, target_scale, target_max_size)
+ 
     if cfg.DEDUP_BOXES > 0 and not cfg.MODEL.FASTER_RCNN:
         v = np.array([1, 1e3, 1e6, 1e9, 1e12])
         hashes = np.round(inputs['rois'] * cfg.DEDUP_BOXES).dot(v)
@@ -148,13 +149,16 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
         inputs['data'] = [torch.from_numpy(inputs['data'])]
         inputs['im_info'] = [torch.from_numpy(inputs['im_info'])]
 
+    #make rois tuple for gpu0
+    #inputs['rois'] = np.array([inputs['rois']],np.float32)
     return_dict = model(**inputs)
-
+    
+    
     if cfg.MODEL.FASTER_RCNN:
         rois = return_dict['rois'].data.cpu().numpy()
         # unscale back to raw image space
         boxes = rois[:, 1:5] / im_scale
-
+  
     # cls prob (activations after softmax)
     scores = return_dict['cls_score'].data.cpu().numpy().squeeze()
     # In case there is 1 proposal
@@ -184,7 +188,7 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
         # Map scores and predictions back to the original set of boxes
         scores = scores[inv_index, :]
         pred_boxes = pred_boxes[inv_index, :]
-
+       
     return scores, pred_boxes, im_scale, return_dict['blob_conv']
 
 
@@ -747,7 +751,7 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
     # Apply threshold on detection probabilities and apply NMS
     # Skip j = 0, because it's the background class
     for j in range(1, num_classes):
-        inds = np.where(scores[:, j] > cfg.TEST.SCORE_THRESH)[0]
+        inds = np.where(scores[:, j] >= cfg.TEST.SCORE_THRESH)[0]
         scores_j = scores[inds, j]
         boxes_j = boxes[inds, j * 4:(j + 1) * 4]
         dets_j = np.hstack((boxes_j, scores_j[:, np.newaxis])).astype(np.float32, copy=False)
@@ -762,6 +766,7 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
         else:
             keep = box_utils.nms(dets_j, cfg.TEST.NMS)
             nms_dets = dets_j[keep, :]
+
         # Refine the post-NMS boxes using bounding-box voting
         if cfg.TEST.BBOX_VOTE.ENABLED:
             nms_dets = box_utils.box_voting(
@@ -771,7 +776,7 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
                 scoring_method=cfg.TEST.BBOX_VOTE.SCORING_METHOD
             )
         cls_boxes[j] = nms_dets
-
+    
     # Limit to max_per_image detections **over all classes**
     if cfg.TEST.DETECTIONS_PER_IM > 0:
         image_scores = np.hstack(

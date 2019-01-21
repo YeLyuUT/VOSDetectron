@@ -159,8 +159,13 @@ def _sample_rois(roidb, im_scale, batch_idx):
     # The indices that we're selecting (both fg and bg)
     keep_inds = np.append(fg_inds, bg_inds)
     # Label is the class each RoI has max overlap with
+    
     sampled_labels = roidb['max_classes'][keep_inds]
     sampled_labels[fg_rois_per_this_image:] = 0  # Label bg RoIs with class 0
+    
+    sampled_ids = roidb['max_global_id'][keep_inds]
+    sampled_ids[fg_rois_per_this_image:] = 0 # Label instance to be background ID
+    
     sampled_boxes = roidb['boxes'][keep_inds]
 
     if 'bbox_targets' not in roidb:
@@ -189,6 +194,9 @@ def _sample_rois(roidb, im_scale, batch_idx):
         bbox_targets=bbox_targets,
         bbox_inside_weights=bbox_inside_weights,
         bbox_outside_weights=bbox_outside_weights)
+
+    if cfg.MODEL.IDENTITY_TRAINING:
+        blob_dict['global_id_int32'] = sampled_ids
 
     # Optionally add Mask R-CNN blobs
     if cfg.MODEL.MASK_ON:

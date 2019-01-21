@@ -109,12 +109,17 @@ class Generalized_VOS_RCNN(nn.Module):
             self.Conv_Body.spatial_scale = self.Conv_Body.spatial_scale[-self.num_roi_levels:]
 
         # BBOX Branch
-        if not cfg.MODEL.RPN_ONLY:
+        if not cfg.MODEL.RPN_ONLY:          
             self.Box_Head = get_func(cfg.FAST_RCNN.ROI_BOX_HEAD)(
                 self.RPN.dim_out, self.roi_feature_transform, self.Conv_Body.spatial_scale)
-            self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(
-                self.Box_Head.dim_out, cfg.MODEL.NUM_CLASSES)
-
+            if not cfg.MODEL.IDENTITY_TRAINING:
+              self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(
+                  self.Box_Head.dim_out, cfg.MODEL.NUM_CLASSES)
+            else:
+              self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(
+                  self.Box_Head.dim_out, cfg.MODEL.NUM_CLASSES,cfg.MODEL.TOTAL_INSTANCE_NUM)
+        
+               
         # Mask Branch
         if cfg.MODEL.MASK_ON:
             self.Mask_Head = get_func(cfg.MRCNN.ROI_MASK_HEAD)(
@@ -220,7 +225,10 @@ class Generalized_VOS_RCNN(nn.Module):
                 box_feat, res5_feat = self.Box_Head(blob_conv, rpn_ret)
             else:
                 box_feat = self.Box_Head(blob_conv, rpn_ret)
-            cls_score, bbox_pred = self.Box_Outs(box_feat)
+            if not cfg.MODEL.IDENTITY_TRAINING:
+              cls_score, bbox_pred = self.Box_Outs(box_feat)
+            else:
+              cls_score, bbox_pred, id_score = self.Box_Outs(box_feat)
         else:
             # TODO: complete the returns for RPN only situation
             pass
@@ -245,9 +253,15 @@ class Generalized_VOS_RCNN(nn.Module):
             # bbox loss
             if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
               cls_weights = torch.tensor([1.]*(cfg.MODEL.NUM_CLASSES-1)+[0.], device=cls_score.device)
-            loss_cls, loss_bbox, accuracy_cls = fast_rcnn_heads.fast_rcnn_losses(
-                cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],
-                rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'], cls_weights = cls_weights)
+            if not cfg.MODEL.IDENTITY_TRAINING:
+              loss_cls, loss_bbox, accuracy_cls = fast_rcnn_heads.fast_rcnn_losses(
+                  cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],
+                  rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'], cls_weights = cls_weights)
+            else:
+              loss_cls, loss_bbox, accuracy_cls, loss_id, accuracy_id = fast_rcnn_heads.fast_rcnn_losses(
+                  cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],
+                  rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'], cls_weights = cls_weights, id_score = id_score, id_int32 = rpn_ret['global_id_int32'])
+              return_dict['losses']['loss_id'] = loss_id
             return_dict['losses']['loss_cls'] = loss_cls
             return_dict['losses']['loss_bbox'] = loss_bbox
             return_dict['metrics']['accuracy_cls'] = accuracy_cls
