@@ -168,7 +168,7 @@ class Generalized_VOS_RCNN(nn.Module):
         for i in range(5):
             if self.hidden_states[i] is None:
                 self._create_hidden_state(i,ref_blobs[i])
-                
+
     def reset_hidden_states_to_zero(self):        
         for i in range(len(self.hidden_states)):
             self.hidden_states[i].data.zero_()
@@ -302,7 +302,7 @@ class Generalized_VOS_RCNN(nn.Module):
                 return_dict['losses'][k] = v.unsqueeze(0)
             for k, v in return_dict['metrics'].items():
                 return_dict['metrics'][k] = v.unsqueeze(0)
-
+                
         else:
             # Testing
             return_dict['rois'] = rpn_ret['rois']

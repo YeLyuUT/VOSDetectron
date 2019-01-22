@@ -47,7 +47,7 @@ def binary_mask_to_rle(binary_mask):
   return rle
 
 class DAVIS_imdb(vos_imdb):
-  def __init__(self,db_name="DAVIS", split = 'train', cls_mapper = None):
+  def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False):
     '''
     Args:
     cls_mapper(dict type): VOS dataset only provides instance id label or class label that
@@ -101,6 +101,7 @@ class DAVIS_imdb(vos_imdb):
     self.set_global_instance_id_start()
     self.debug_timer = Timer()
     self.keypoints = None
+    self.load_flow = load_flow
     
   @property
   def valid_cached_keys(self):
@@ -209,9 +210,17 @@ class DAVIS_imdb(vos_imdb):
     roidb['width'] = gt.shape[1]
     roidb['seq_idx'] = self.get_current_seq_index()
     roidb['idx'] = idx
+    if self.load_flow is True:
+      if idx>0:
+        flow_file_name = cfg.DAVIS.FLOW_FILENAME_TEMPLATE%(idx-1)
+        flow_file_path = osp.join(cfg.DAVIS.FLOW_DIR, self.get_current_seq_name(), flow_file_name)
+        assert(osp.exists(flow_file_path))
+        roidb['flow'] = flow_file_path
+      else:
+        roidb['flow'] = None
     return roidb
-   
-  def prepare_roi_db(self, roidb, db_name):
+
+  def prepare_roi_db(self, roidb, db_name, proposal_file = None):
     for entry in roidb:
       self._prep_roidb_entry(entry)
     # Include ground-truth object annotations
@@ -237,6 +246,15 @@ class DAVIS_imdb(vos_imdb):
             with open(cache_filepath, 'wb') as fp:
                 pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
             logger.info('Cache ground truth roidb to %s', cache_filepath)
+    if proposal_file is not None:
+      # Include proposals from a file
+      self.debug_timer.tic()
+      #TODO: set proper min_proposal_size and proposal_limit.
+      self._add_proposals_from_file(roidb, proposal_file = proposal_file, min_proposal_size=2, proposal_limit=-1)
+      logger.debug(
+          '_add_proposals_from_file took {:.3f}s'.
+          format(self.debug_timer.toc(average=False))
+      )
     _add_class_assignments(roidb)
 
   def _prep_roidb_entry(self, entry):
@@ -419,7 +437,35 @@ class DAVIS_imdb(vos_imdb):
         entry['box_to_gt_ind_map'], box_to_gt_ind_map
       )
 
-  def get_roidb_from_seq_idx_sequence(self, seq_idx):
+  def _add_proposals_from_file(self, roidb, proposal_file, min_proposal_size, top_k)
+        """Add proposals from a proposals file to an roidb.
+        """
+        logger.info('Loading proposals from: {}'.format(proposal_file))
+        with open(proposal_file, 'r') as f:
+            proposals = pickle.load(f)
+        #proposals[seq_idx][idx]
+        box_list = []
+        for i, entry in enumerate(roidb):
+            if i % 500 == 0:
+                logger.info(' {:d}/{:d}'.format(i + 1, len(roidb)))
+            seq_idx = entry['seq_idx']
+            idx = entry['idx']
+            boxes = proposals['boxes'][seq_idx][idx]
+            # Remove duplicate boxes and very small boxes and then take top k
+            boxes = box_utils.clip_boxes_to_image(
+                boxes, entry['height'], entry['width']
+            )
+            keep = box_utils.unique_boxes(boxes)
+            boxes = boxes[keep, :]
+            keep = box_utils.filter_small_boxes(boxes, min_proposal_size)
+            boxes = boxes[keep, :]
+            if top_k > 0:
+                boxes = boxes[:top_k, :]
+            box_list.append(boxes)
+        _merge_proposal_boxes_into_roidb(roidb, box_list)
+    
+
+  def get_roidb_from_seq_idx_sequence(self, seq_idx, proposal_file = None):
     print('preparing davis roidb of %dth sequence...'%(seq_idx))
     roidb = []    
     self.debug_timer.tic()
@@ -428,16 +474,15 @@ class DAVIS_imdb(vos_imdb):
     for idx in range(seq_len):
       roidb.append(self.get_roidb_at_idx_from_sequence(idx))
     db_name = self.name+'_'+self.split+'_%d_sequence_roidb.pkl'%(seq_idx)
-    self.prepare_roi_db(roidb,db_name = db_name)
+    self.prepare_roi_db(roidb,db_name = db_name,proposal_file = proposal_file)
     print('Done.')
     return roidb
-
     
-  def get_roidb_from_all_sequences(self):
+  def get_roidb_from_all_sequences(self, proposal_file = None):
     roidb = []
     self.debug_timer.tic()
     for seq_idx in range(self.get_num_sequence()):      
-      roidb.extend(self.get_roidb_from_seq_idx_sequence(seq_idx))
+      roidb.extend(self.get_roidb_from_seq_idx_sequence(seq_idx, proposal_file = proposal_file))
     return roidb
   
   def _create_db_from_label(self):
@@ -575,6 +620,70 @@ def _add_class_assignments(roidb):
       # if max overlap id > 0, the id must be a fg id (not id 0)
       nonzero_inds = np.where(max_overlaps_id > 0)[0]
       assert all(max_global_id[nonzero_inds] != 0)
+
+def _merge_proposal_boxes_into_roidb(roidb, box_list):
+    """Add proposal boxes to each roidb entry."""
+    assert len(box_list) == len(roidb)
+    for i, entry in enumerate(roidb):
+        boxes = box_list[i]
+        num_boxes = boxes.shape[0]
+        gt_overlaps = np.zeros(
+            (num_boxes, entry['gt_overlaps'].shape[1]),
+            dtype=entry['gt_overlaps'].dtype
+        )
+        box_to_gt_ind_map = -np.ones(
+            (num_boxes), dtype=entry['box_to_gt_ind_map'].dtype
+        )
+
+        # Note: unlike in other places, here we intentionally include all gt
+        # rois, even ones marked as crowd. Boxes that overlap with crowds will
+        # be filtered out later (see: _filter_crowd_proposals).
+        gt_inds = np.where(entry['gt_classes'] > 0)[0]
+        if len(gt_inds) > 0:
+            gt_boxes = entry['boxes'][gt_inds, :]
+            gt_classes = entry['gt_classes'][gt_inds]
+            proposal_to_gt_overlaps = box_utils.bbox_overlaps(
+                boxes.astype(dtype=np.float32, copy=False),
+                gt_boxes.astype(dtype=np.float32, copy=False)
+            )
+            # Gt box that overlaps each input box the most
+            # (ties are broken arbitrarily by class order)
+            argmaxes = proposal_to_gt_overlaps.argmax(axis=1)
+            # Amount of that overlap
+            maxes = proposal_to_gt_overlaps.max(axis=1)
+            # Those boxes with non-zero overlap with gt boxes
+            I = np.where(maxes > 0)[0]
+            # Record max overlaps with the class of the appropriate gt box
+            gt_overlaps[I, gt_classes[argmaxes[I]]] = maxes[I]
+            box_to_gt_ind_map[I] = gt_inds[argmaxes[I]]
+        entry['boxes'] = np.append(
+            entry['boxes'],
+            boxes.astype(entry['boxes'].dtype, copy=False),
+            axis=0
+        )
+        entry['gt_classes'] = np.append(
+            entry['gt_classes'],
+            np.zeros((num_boxes), dtype=entry['gt_classes'].dtype)
+        )
+        entry['seg_areas'] = np.append(
+            entry['seg_areas'],
+            np.zeros((num_boxes), dtype=entry['seg_areas'].dtype)
+        )
+        entry['gt_overlaps'] = np.append(
+            entry['gt_overlaps'].toarray(), gt_overlaps, axis=0
+        )
+        entry['gt_overlaps'] = scipy.sparse.csr_matrix(entry['gt_overlaps'])
+        entry['is_crowd'] = np.append(
+            entry['is_crowd'],
+            np.zeros((num_boxes), dtype=entry['is_crowd'].dtype)
+        )
+        entry['box_to_gt_ind_map'] = np.append(
+            entry['box_to_gt_ind_map'],
+            box_to_gt_ind_map.astype(
+                entry['box_to_gt_ind_map'].dtype, copy=False
+            )
+        )
+
 
 def _sort_proposals(proposals, id_field):
   """Sort proposals by the specified id field."""

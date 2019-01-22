@@ -53,9 +53,9 @@ def combined_roidb_for_training(dataset_names, proposal_files):
         if 'davis' in dataset_name:
           name, split = dataset_name.split('_')
           #year = '2017', split = 'train'
-          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None)
+          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE)
           #roidb = ds.get_roidb_from_all_sequences()
-          roidb = ds.get_roidb_from_all_sequences()
+          roidb = ds.get_roidb_from_all_sequences(proposal_file=proposal_file)
         else:
           #default load coco dataset.
           ds = JsonDataset(dataset_name)

@@ -7,12 +7,16 @@ train_davis_static(for reference):
 [pp]:losses for positive proposals only. Need high recall.
 [id]:add identity branch and losses. Use global ID(id only, no background) to get feature generator.
 ability: proposal+cls+mask+id(static id difference across all images. Mimic ReID.)
+add proposals from file.
+add proposals, no class training.
 
 train_davis_dynamic:
 [f]:with flow and flow align module.
 [pp]:losses for positive proposals only. Need high recall.
 [id]:add identity branch and losses. Use local ID(id+background), online ID mapper. 
 ability: proposal+cls+mask+id(dynamic proposal,cls,mask,id propagation,id differences in every frame.)
+no-flip
+no proposal training, only for better mask and identity.
 
 offline_davis_test_training(all test sequence first frame):
 [-f]:no flow and flow align module.
