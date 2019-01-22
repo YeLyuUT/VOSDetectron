@@ -73,7 +73,8 @@ def fast_rcnn_losses(cls_score, bbox_pred, label_int32, bbox_targets,
     accuracy_cls = cls_preds.eq(rois_label).float().mean(dim=0)
     
     #id loss and accuracy    
-    if not id_score is None and not id_int32 is None:
+    if cfg.MODEL.IDENTITY_TRAINING:
+      assert(not id_score is None and not id_int32 is None)
       id_label = Variable(torch.from_numpy(id_int32.astype('int64'))).cuda(device_id)
       loss_id = F.cross_entropy(id_score, id_label)
             

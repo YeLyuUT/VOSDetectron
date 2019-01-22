@@ -926,12 +926,11 @@ __C.CONVGRU.DYNAMIC_MODEL = True
 # ---------------------------------------------------------------------------- #
 # VIDEO options
 # ---------------------------------------------------------------------------- #
-__C.VIDEO = AttrDict()
 __C.MODEL.IDENTITY_TRAINING = False
 # Dynamically determine the instance number
 __C.MODEL.TOTAL_INSTANCE_NUM = 0
-__C.VIDEO.TRAIN.SEQUENCE_LENGTH = 5
-__C.VIDEO.TEST.SEQUENCE_LENGTH = 3
+__C.TRAIN.SEQUENCE_LENGTH = 5
+__C.TEST.SEQUENCE_LENGTH = 5
 
 # ---------------------------------------------------------------------------- #
 # GroupNorm options

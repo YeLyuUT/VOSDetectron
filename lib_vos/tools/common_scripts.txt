@@ -1,11 +1,11 @@
 #train static VOS MRCNN model
 python ./train_coco.py --dataset coco2017 --cfg ./R-101-FPN_3x_gn_static_coco.yaml --disp_interval 50 --nw 8 --o SGD --use_tfboard --load_detectron '../../data/pretrained_model/R-101-GN.pkl'
 
+#train static VOS DAVIS model
+python ./train_davis_static.py --dataset davis2017 --cfg ./R-101-FPN_3x_gn_static_davis.yaml --disp_interval 50 --nw 8 --o SGD --use_tfboard --load_ckpt './Outputs/R-101-FPN_3x_gn_static_coco/Jan21-19-52-48_UT143397_step/ckpt/model_step79999.pth'
+
 #predict static VOS MRCNN model
 python ./predict_davis.py --dataset coco2017 --cfg ./R-101-FPN_3x_gn_static_coco.yaml --load_ckpt './Outputs/R-101-FPN_3x_gn_static_training/Jan18-00-57-23_UT143397_step/ckpt/model_step269999.pth' --output_dir './Output/static_coco'
-
-
-
 
 
 

@@ -7,20 +7,28 @@ from matplotlib import pyplot as plt
 from .config import cfg
 import cv2
 import numpy as np
+import scipy.sparse
+from six.moves import cPickle as pickle
+from itertools import groupby
+import logging
+logger = logging.getLogger(__name__)
+
+def addPath(path):
+  if path not in sys.path:
+    sys.path.append(path)
 
 davis_api_home = osp.join(cfg.DAVIS.HOME,'python','lib')
-if not davis_api_home in sys.path:
-  sys.path.append(davis_api_home)
+dataset_lib = osp.abspath(osp.join(osp.dirname(__file__),'../../lib/'))
+addPath(davis_api_home)
+addPath(dataset_lib)
 
 from davis import cfg as cfg_davis
 from davis import io,DAVISLoader,phase  
 
-dataset_lib = osp.abspath('../../lib/')
-if not dataset_lib in sys.path:
-  sys.path.append(dataset_lib)
-  
-from datasets.dataset_catalog import ANN_FN
-from datasets.dataset_catalog import DATASETS
+from utils.timer import Timer
+import utils.boxes as box_utils
+import datasets.dummy_datasets as datasets
+
 if not cfg.COCO_API_HOME in sys.path:
   sys.path.append(cfg.COCO_API_HOME)
 
@@ -46,7 +54,7 @@ class DAVIS_imdb(vos_imdb):
     is not consistent with the object detection model. As our work is to provide object 
     detection model with the ability for VOS task, so object label is provided by the
     prediction of object detection model. The prediction is provided by label_mapper.
-    If set None, no class is assigned. Otherwise, category_id = cls_mapper[instance_id].
+    If set None, no class is assigned. Otherwise, class_id = cls_mapper[instance_id].
     
     For seq_idx, instance_idx, its class label can be got by "label_mapper[seq_idx][instance_idx]".
     
@@ -81,21 +89,19 @@ class DAVIS_imdb(vos_imdb):
       self.cls_mapper = cls_mapper
     # Here we adopt COCO classes.
     
-    self.COCO = COCO(DATASETS['coco_2017_train'][ANN_FN])
-    category_ids = self.COCO.getCatIds()
-    categories = [c['name'] for c in self.COCO.loadCats(category_ids)]
+    self.COCO = datasets.get_coco_dataset()
+    category_ids = list(self.COCO.classes.keys())
+    categories = list(self.COCO.classes.values())
     self.category_to_id_map = dict(zip(categories, category_ids))
     self.classes = ['__background__'] + categories + ['__unknown__']
     self.num_classes = len(self.classes)
-    self.json_category_id_to_contiguous_id = {
-        v: i + 1
-        for i, v in enumerate(self.COCO.getCatIds())
-    }
     self.number_of_instance_ids = 0
     self.global_instance_id_start_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
     self.instance_number_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
     self.set_global_instance_id_start()
-
+    self.debug_timer = Timer()
+    self.keypoints = None
+    
   @property
   def valid_cached_keys(self):
       """ Can load following key-ed values from the cached roidb file
@@ -158,15 +164,16 @@ class DAVIS_imdb(vos_imdb):
       #start from 1. 0 is reserved for background.      
       accumulate = 1
       self.global_instance_id_start_of_seq[0] = accumulate
-      for seq_idx in range(self.get_num_sequence()-1):
+      for seq_idx in range(self.get_num_sequence()):
         if self.instance_number_of_seq[seq_idx] == 0:
           self.set_to_sequence(seq_idx)
           #get gt from first frame.
           gt = self.get_gt(idx=0)
           #len(np.unique(gt))-1 as there is background in vals.
-          self.instance_number_of_seq[seq_idx] = len(np.unique(gt))-1
-        accumulate += self.instance_number_of_seq[seq_idx]
-        self.global_instance_id_start_of_seq[seq_idx+1] = accumulate
+          self.instance_number_of_seq[seq_idx] = len(np.unique(gt))-1        
+        if seq_idx<self.get_num_sequence()-1:
+          accumulate += self.instance_number_of_seq[seq_idx]
+          self.global_instance_id_start_of_seq[seq_idx+1] = accumulate
       print('instance_number_of_seq:',self.instance_number_of_seq)
       print('global_instance_id_start_of_seq:',self.global_instance_id_start_of_seq)
       self.number_of_instance_ids = accumulate+self.instance_number_of_seq[self.get_num_sequence()-1]
@@ -204,12 +211,33 @@ class DAVIS_imdb(vos_imdb):
     roidb['idx'] = idx
     return roidb
    
-  def prepare_roi_db(self, roidb):
+  def prepare_roi_db(self, roidb, db_name):
     for entry in roidb:
       self._prep_roidb_entry(entry)
-    if self.split in ['train','val','trainval']:
-      for entry in roidb:
-        self._add_gt_annotations(entry)
+    # Include ground-truth object annotations
+    if not osp.isdir(cfg.CACHE_DIR):
+      os.makedirs(cfg.CACHE_DIR)
+      assert(osp.isdir(cfg.CACHE_DIR))
+    cache_filepath = os.path.join(cfg.CACHE_DIR, db_name)
+    if os.path.exists(cache_filepath) and not cfg.DEBUG:
+        self._add_gt_from_cache(roidb, cache_filepath)
+        logger.debug(
+            '_add_gt_from_cache took {:.3f}s'.
+            format(self.debug_timer.toc(average=False))
+        )
+    else:
+      if self.split in ['train','val','trainval']:
+        for entry in roidb:
+          self._add_gt_annotations(entry)
+        logger.debug(
+            '_add_gt_annotations took {:.3f}s'.
+            format(self.debug_timer.toc(average=False))
+        )
+        if not cfg.DEBUG:
+            with open(cache_filepath, 'wb') as fp:
+                pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
+            logger.info('Cache ground truth roidb to %s', cache_filepath)
+    _add_class_assignments(roidb)
 
   def _prep_roidb_entry(self, entry):
     """Adds empty metadata fields to an roidb entry."""
@@ -259,7 +287,7 @@ class DAVIS_imdb(vos_imdb):
         assert(len(set(mask.reshape(-1))-{0,1})==0)
         x,y,w,h = cv2.boundingRect(mask)
 
-        obj['segmentation'] = binary_mask_to_rle(np.np.asfortranarray(mask))
+        obj['segmentation'] = binary_mask_to_rle(np.asfortranarray(mask))
         obj['area'] = np.sum(mask)
         obj['iscrowd'] = 0
         obj['bbox'] = x,y,w,h
@@ -319,8 +347,9 @@ class DAVIS_imdb(vos_imdb):
 
     im_has_visible_keypoints = False
     for ix, obj in enumerate(valid_objs):
-      if 'category_id' is not None:
-        cls = self.json_category_id_to_contiguous_id[obj['category_id']]
+      if obj['category_id'] is not None:
+        #cls = self.json_category_id_to_contiguous_id[obj['category_id']]
+        cls = obj['category_id']
       else:
         #if no category_id specified, use background instead. index is 'self.num_classes-1'
         cls = self.num_classes-1
@@ -391,81 +420,24 @@ class DAVIS_imdb(vos_imdb):
       )
 
   def get_roidb_from_seq_idx_sequence(self, seq_idx):
-    roidb = []
-    
+    print('preparing davis roidb of %dth sequence...'%(seq_idx))
+    roidb = []    
     self.debug_timer.tic()
     self.set_to_sequence(seq_idx)
     seq_len = self.get_current_seq_length()
     for idx in range(seq_len):
       roidb.append(self.get_roidb_at_idx_from_sequence(idx))
-
-    for entry in roidb:
-      self._prep_roidb_entry(entry)
- 
-    # Include ground-truth object annotations
-    if not osp.isdir(cfg.CACHE_DIR):
-      os.mkdirs(cfg.CACHE_DIR)
-      assert(osp.isdir(cfg.CACHE_DIR))
-    cache_filepath = os.path.join(cfg.CACHE_DIR, self.name+'_%d_sequence_roidb.pkl'%(seq_idx))
-    if os.path.exists(cache_filepath) and not cfg.DEBUG:
-        self._add_gt_from_cache(roidb, cache_filepath)
-        logger.debug(
-            '_add_gt_from_cache took {:.3f}s'.
-            format(self.debug_timer.toc(average=False))
-        )
-    else:
-      if self.split in ['train','val','trainval']:
-        for entry in roidb:
-          self._add_gt_annotations(entry)
-        logger.debug(
-            '_add_gt_annotations took {:.3f}s'.
-            format(self.debug_timer.toc(average=False))
-        )
-        if not cfg.DEBUG:
-            with open(cache_filepath, 'wb') as fp:
-                pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
-            logger.info('Cache ground truth roidb to %s', cache_filepath)
+    db_name = self.name+'_'+self.split+'_%d_sequence_roidb.pkl'%(seq_idx)
+    self.prepare_roi_db(roidb,db_name = db_name)
+    print('Done.')
     return roidb
 
     
   def get_roidb_from_all_sequences(self):
     roidb = []
     self.debug_timer.tic()
-    for seq_idx in range(self.get_num_sequence()):
-      self.set_to_sequence(seq_idx)
-      seq_len = self.get_current_seq_length()
-      for idx in range(seq_len):
-        roidb.append(self.get_roidb_at_idx_from_sequence(idx))
-    
-    for entry in roidb:
-      self._prep_roidb_entry(entry)
-    # Include ground-truth object annotations
-    if not osp.isdir(cfg.CACHE_DIR):
-        os.mkdirs(cfg.CACHE_DIR)
-        assert(osp.isdir(cfg.CACHE_DIR))
-    cache_filepath = os.path.join(cfg.CACHE_DIR, self.name+'_all_sequences_roidb.pkl')
-    if os.path.exists(cache_filepath) and not cfg.DEBUG:
-        self._add_gt_from_cache(roidb, cache_filepath)
-        logger.debug(
-            '_add_gt_from_cache took {:.3f}s'.
-            format(self.debug_timer.toc(average=False))
-        )
-    logger.debug(
-        '_add_gt_annotations took {:.3f}s'.
-        format(self.debug_timer.toc(average=False))
-    )
-    else:
-      if self.split in ['train','val','trainval']:
-        for entry in roidb:
-          self._add_gt_annotations(entry)
-        logger.debug(
-            '_add_gt_annotations took {:.3f}s'.
-            format(self.debug_timer.toc(average=False))
-        )      
-      if not cfg.DEBUG:
-          with open(cache_filepath, 'wb') as fp:
-              pickle.dump(roidb, fp, pickle.HIGHEST_PROTOCOL)
-          logger.info('Cache ground truth roidb to %s', cache_filepath)
+    for seq_idx in range(self.get_num_sequence()):      
+      roidb.extend(self.get_roidb_from_seq_idx_sequence(seq_idx))
     return roidb
   
   def _create_db_from_label(self):
@@ -567,7 +539,7 @@ def _merge_proposal_boxes_into_roidb(roidb, box_list):
             )
         )
 
-def _add_class_assignments(self, roidb):
+def _add_class_assignments(roidb):
     """Compute object category assignment for each box associated with each
     roidb entry.
     """

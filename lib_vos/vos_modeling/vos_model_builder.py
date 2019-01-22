@@ -258,10 +258,9 @@ class Generalized_VOS_RCNN(nn.Module):
                   cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],
                   rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'], cls_weights = cls_weights)
             else:
-              loss_cls, loss_bbox, accuracy_cls, loss_id, accuracy_id = fast_rcnn_heads.fast_rcnn_losses(
-                  cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],
-                  rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'], cls_weights = cls_weights, id_score = id_score, id_int32 = rpn_ret['global_id_int32'])
+              loss_cls, loss_bbox, accuracy_cls, loss_id, accuracy_id = fast_rcnn_heads.fast_rcnn_losses(cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'], cls_weights = cls_weights, id_score = id_score, id_int32 = rpn_ret['global_id_int32'])
               return_dict['losses']['loss_id'] = loss_id
+              return_dict['metrics']['accuracy_id'] = accuracy_id
             return_dict['losses']['loss_cls'] = loss_cls
             return_dict['losses']['loss_bbox'] = loss_bbox
             return_dict['metrics']['accuracy_cls'] = accuracy_cls

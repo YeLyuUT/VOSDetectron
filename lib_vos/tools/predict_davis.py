@@ -7,11 +7,11 @@ from collections import defaultdict
 def addPath(path):
     if path not in sys.path:
         sys.path.append(path)      
-imdbPath = osp.abspath('../../imdb')
-home = osp.abspath('../..')
-lib_vos_path = osp.abspath('../../lib_vos')
-lib_path = osp.abspath('../../lib')
-tool_path = osp.abspath('../../tools')
+imdbPath = osp.abspath(osp.join(osp.dirname(__file__),'../../imdb'))
+home = osp.abspath(osp.join(osp.dirname(__file__),'../..'))
+lib_vos_path = osp.abspath(osp.join(osp.dirname(__file__),'../../lib_vos'))
+lib_path = osp.abspath(osp.join(osp.dirname(__file__),'../../lib'))
+tool_path = osp.abspath(osp.join(osp.dirname(__file__),'../../tools'))
 addPath(lib_vos_path)
 addPath(lib_path)
 addPath(home)

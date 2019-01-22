@@ -168,7 +168,7 @@ def main():
         cfg.TRAIN.DATASETS = ('keypoints_coco_2017_train',)
         cfg.MODEL.NUM_CLASSES = 2
     elif args.dataset == "davis2017":
-        cfg.TRAIN.DATASETS = ('davis_2017_train',)
+        cfg.TRAIN.DATASETS = ('davis_train',)
         #For davis, coco category is used.
         cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
     else:

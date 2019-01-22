@@ -20,8 +20,8 @@ from easydict import EasyDict as AttrDict
 
 __C = AttrDict()
 cfg = __C
-__C.DEBUG = True
-__C.CACHE_DIR = './cache'
+__C.DEBUG = False
+__C.CACHE_DIR = osp.abspath(osp.join(osp.dirname(__file__),'./cache'))
 __C.COCO_API_HOME = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Dataset/MSCOCO/PythonAPI'
 # ---------------------------------------------------------------------------- #
 # DAVIS

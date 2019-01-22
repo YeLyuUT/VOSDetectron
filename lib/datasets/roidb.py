@@ -38,9 +38,9 @@ def addPath(path):
   if path not in sys.path:
     sys.path.append(path)
 
-davis_db_path = osp.abspath('../../imdb/vos/')
-addPath(davis_db_path)
-from davis_db import DAVIS_imdb
+imdb_path = osp.abspath(osp.join(osp.dirname(__file__),'../../imdb/'))
+addPath(imdb_path)
+from vos.davis_db import DAVIS_imdb
 
 def combined_roidb_for_training(dataset_names, proposal_files):
     """Load and concatenate roidbs for one or more datasets, along with optional
@@ -54,6 +54,7 @@ def combined_roidb_for_training(dataset_names, proposal_files):
           name, split = dataset_name.split('_')
           #year = '2017', split = 'train'
           ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None)
+          #roidb = ds.get_roidb_from_all_sequences()
           roidb = ds.get_roidb_from_all_sequences()
         else:
           #default load coco dataset.
@@ -145,7 +146,7 @@ def filter_for_training(roidb):
         fg_inds = np.where(overlaps >= cfg.TRAIN.FG_THRESH)[0]
         # Select background RoIs as those within [BG_THRESH_LO, BG_THRESH_HI)
         bg_inds = np.where((overlaps < cfg.TRAIN.BG_THRESH_HI) &
-                           (overlaps >= cfg.TRAIN.BG_THRESH_LO))[0]
+                           (overlaps >= cfg.TRAIN.BG_THRESH_LO))[0]              
         # image is only valid if such boxes exist
         valid = len(fg_inds) > 0 or len(bg_inds) > 0
         if cfg.MODEL.KEYPOINTS_ON:

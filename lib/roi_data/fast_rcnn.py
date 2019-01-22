@@ -163,8 +163,9 @@ def _sample_rois(roidb, im_scale, batch_idx):
     sampled_labels = roidb['max_classes'][keep_inds]
     sampled_labels[fg_rois_per_this_image:] = 0  # Label bg RoIs with class 0
     
-    sampled_ids = roidb['max_global_id'][keep_inds]
-    sampled_ids[fg_rois_per_this_image:] = 0 # Label instance to be background ID
+    if cfg.MODEL.IDENTITY_TRAINING:
+      sampled_ids = roidb['max_global_id'][keep_inds]
+      sampled_ids[fg_rois_per_this_image:] = 0 # Label instance to be background ID
     
     sampled_boxes = roidb['boxes'][keep_inds]
 
