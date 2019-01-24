@@ -32,7 +32,11 @@ class GenerateProposalLabelsOp(nn.Module):
         # This choice should be investigated in the future (it likely does
         # not matter).
         # Note: crowd_thresh=0 will ignore _filter_crowd_proposals
-        json_dataset.add_proposals(roidb, rpn_rois, im_scales, crowd_thresh=0)
+        if 'coco' in cfg.TRAIN.DATASETS:
+                json_dataset.add_proposals(roidb, rpn_rois, im_scales, crowd_thresh=0)
+        elif 'davis' in cfg.TRAIN.DATASETS:
+            davis_db.add_proposals(roidb, rpn_rois, im_scales, crowd_thresh=0)
+            
         blobs = {k: [] for k in output_blob_names}
         roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb)
 

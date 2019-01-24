@@ -32,7 +32,7 @@ import nn as mynn
 import utils.net as net_utils
 import utils.misc as misc_utils
 from core.config import cfg, cfg_from_file, cfg_from_list, assert_and_infer_cfg
-from datasets.roidb import combined_roidb_for_training
+from vos_datasets.sequence_roidb import sequenced_roidb_for_training
 from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
 #from modeling.model_builder import Generalized_RCNN
 from vos_modeling import vos_model_builder
@@ -161,13 +161,7 @@ def main():
     else:
         raise ValueError("Need Cuda device to run !")
 
-    if args.dataset == "coco2017":
-        cfg.TRAIN.DATASETS = ('coco_2017_train',)
-        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
-    elif args.dataset == "keypoints_coco2017":
-        cfg.TRAIN.DATASETS = ('keypoints_coco_2017_train',)
-        cfg.MODEL.NUM_CLASSES = 2
-    elif args.dataset == "davis2017":
+    if args.dataset == "davis2017":
         cfg.TRAIN.DATASETS = ('davis_2017_train',)
         #For davis, coco category is used.
         cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
@@ -245,16 +239,16 @@ def main():
 
     ### Dataset ###
     timers['roidb'].tic()
-    roidb, ratio_list, ratio_index = combined_roidb_for_training(
+    merged_roidb, seq_num, seq_start_end = sequenced_roidb_for_training(
         cfg.TRAIN.DATASETS, cfg.TRAIN.PROPOSAL_FILES)
     timers['roidb'].toc()
-    roidb_size = len(roidb)
-    logger.info('{:d} roidb entries'.format(roidb_size))
-    logger.info('Takes %.2f sec(s) to construct roidb', timers['roidb'].average_time)
+    roidb_size = len(roidbs)
+    logger.info('{:d} roidbs sequences.'.format(roidb_size))
+    logger.info('Takes %.2f sec(s) to construct roidbs', timers['roidb'].average_time)
 
-    # Effective training sample size for one epoch
+    # Effective training sample size for one epoch, number of sequences.
     train_size = roidb_size // args.batch_size * args.batch_size
-
+    
     batchSampler = BatchSampler(
         sampler=MinibatchSampler(ratio_list, ratio_index),
         batch_size=args.batch_size,

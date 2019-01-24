@@ -114,12 +114,12 @@ class Generalized_VOS_RCNN(nn.Module):
                 self.RPN.dim_out, self.roi_feature_transform, self.Conv_Body.spatial_scale)
             if not cfg.MODEL.IDENTITY_TRAINING:
               self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(
-                  self.Box_Head.dim_out, cfg.MODEL.NUM_CLASSES)
+                  self.Box_Head.dim_out)
             else:
               self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(
-                  self.Box_Head.dim_out, cfg.MODEL.NUM_CLASSES,cfg.MODEL.TOTAL_INSTANCE_NUM)
-        
-               
+                  self.Box_Head.dim_out)
+
+
         # Mask Branch
         if cfg.MODEL.MASK_ON:
             self.Mask_Head = get_func(cfg.MRCNN.ROI_MASK_HEAD)(
@@ -205,7 +205,7 @@ class Generalized_VOS_RCNN(nn.Module):
           #if dynamic model, hidden_states need to be updated.
           #TODO
           pass
-        
+
         rpn_ret = self.RPN(blob_conv, im_info, roidb)
 
         # if self.training:
@@ -308,6 +308,8 @@ class Generalized_VOS_RCNN(nn.Module):
             return_dict['rois'] = rpn_ret['rois']
             return_dict['cls_score'] = cls_score
             return_dict['bbox_pred'] = bbox_pred
+            if cfg.MODEL.IDENTITY_TRAINING:
+              return_dict['id_score'] = id_score
 
         return return_dict
 

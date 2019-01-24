@@ -2,13 +2,14 @@ train_coco_static:
 [-f]:no flow and flow align module.
 ability: proposal+cls+mask
 
+# Filtering objects by rejecting proposals.
 train_davis_static(for reference):
 [-f]:no flow and flow align module.
 [pp]:losses for positive proposals only. Need high recall.
 [id]:add identity branch and losses. Use global ID(id only, no background) to get feature generator.
 ability: proposal+cls+mask+id(static id difference across all images. Mimic ReID.)
-add proposals from file.
-add proposals, no class training.
+(optional)add proposals from file, which do not have cls,id,mask training.
+Goal: high proposal recall and id identification ability.
 
 train_davis_dynamic:
 [f]:with flow and flow align module.
@@ -16,14 +17,18 @@ train_davis_dynamic:
 [id]:add identity branch and losses. Use local ID(id+background), online ID mapper. 
 ability: proposal+cls+mask+id(dynamic proposal,cls,mask,id propagation,id differences in every frame.)
 no-flip
-no proposal training, only for better mask and identity.
+Goal: id, cls and mask propogation.
 
 offline_davis_test_training(all test sequence first frame):
 [-f]:no flow and flow align module.
 [pp]:losses for positive proposals only. Need high recall.
 [id]:add identity branch and losses.(static id difference)
+no proposal training.
+Goal: 
 
 online_davis_test_training:
 [-f]:no flow and flow align module.
 [pp]:losses for positive proposals only. Need high recall.
 [id]:add identity branch and losses.(static id difference)
+For the first frame, finetune rpn, bbox, id, cls and mask only.
+For the rest frame, finetune rpn only, base on bbox and mask selected by id.

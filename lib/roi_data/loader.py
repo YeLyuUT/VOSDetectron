@@ -40,9 +40,12 @@ class RoiDataLoader(data.Dataset):
             boxes = entry['boxes']
             invalid = (boxes[:, 0] == boxes[:, 2]) | (boxes[:, 1] == boxes[:, 3])
             valid_inds = np.nonzero(~ invalid)[0]
+            valid_keys = ['boxes', 'gt_classes', 'seg_areas', 'gt_overlaps', 'is_crowd',
+                            'box_to_gt_ind_map', 'gt_keypoints']
+            if cfg.MODEL.IDENTITY_TRAINING is True:
+                valid_keys = valid_keys + ['instance_id', 'global_instance_id', 'gt_overlaps_id']
             if len(valid_inds) < len(boxes):
-                for key in ['boxes', 'gt_classes', 'seg_areas', 'gt_overlaps', 'is_crowd',
-                            'box_to_gt_ind_map', 'gt_keypoints']:
+                for key in valid_keys:
                     if key in entry:
                         entry[key] = entry[key][valid_inds]
                 entry['segms'] = [entry['segms'][ind] for ind in valid_inds]
@@ -244,7 +247,6 @@ def collate_minibatch(list_of_blobs):
         minibatch['roidb'] = list_of_roidb[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
         for key in minibatch:
             Batch[key].append(minibatch[key])
-
     return Batch
 
 

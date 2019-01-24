@@ -11,9 +11,9 @@ NUM_GPUS: 1
 SOLVER:
   WEIGHT_DECAY: 0.0001
   LR_POLICY: steps_with_decay
-  BASE_LR: 0.02
+  BASE_LR: 0.02 # TODO: change learning rate.
   GAMMA: 0.1
-  MAX_ITER: 270000
+  MAX_ITER: 270000 # TODO: change steps.
   STEPS: [0, 210000, 250000]
 FPN:
   FPN_ON: True
@@ -53,7 +53,7 @@ TRAIN:
   RPN_PRE_NMS_TOP_N: 2000  # Per FPN level
   RPN_FG_FRACTION: 0.5 # Higher FG fraction for higher recall.
   USE_FLIPPED: False
-  PROPOSAL_FILES: ()
+  PROPOSAL_FILES: None
 TEST:
   SCALE: 800
   MAX_SIZE: 1333

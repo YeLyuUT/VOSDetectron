@@ -1,12 +1,19 @@
 import numpy as np
 from torch import nn
-
 from core.config import cfg
 from datasets import json_dataset
 import roi_data.fast_rcnn
 import utils.blob as blob_utils
 import utils.fpn as fpn_utils
 
+import sys
+from os import path as osp
+def addPath(path):
+    if not path in sys.path:
+        sys.path.append(path)
+detectronPath = osp.abspath(osp.join(osp.dirname(__file__),'../..'))
+addPath(detectronPath)
+from imdb.vos import davis_db
 
 class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
     """Merge RPN proposals generated at multiple FPN levels and then
@@ -55,12 +62,18 @@ class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
             # implementation we are *not* filtering crowd proposals.
             # This choice should be investigated in the future (it likely does
             # not matter).
-            json_dataset.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
+            if len(cfg.TRAIN.DATASETS)==1:
+                dataset_name = cfg.TRAIN.DATASETS[0]
+                if 'coco' in dataset_name:
+                    json_dataset.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
+                elif 'davis' in dataset_name:
+                    davis_db.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
+            else:
+                json_dataset.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
             # Compute training labels for the RPN proposals; also handles
             # distributing the proposals over FPN levels
             output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names()
             blobs = {k: [] for k in output_blob_names}
-            
             roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb)
         else:
             # For inference we have a special code path that avoids some data

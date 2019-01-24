@@ -27,13 +27,27 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import numpy as np
-
+from itertools import groupby
 import pycocotools.mask as mask_util
 import cv2
 
+def binary_mask_to_rle(binary_mask):
+  binary_mask = np.asfortranarray(binary_mask)
+  rle = {'counts': [], 'size': list(binary_mask.shape)}
+  counts = rle.get('counts')
+  for i, (value, elements) in enumerate(groupby(binary_mask.ravel(order='F'))):
+    if i == 0 and value == 1:
+        counts.append(0)
+    counts.append(len(list(elements)))
+  height= rle.get('size')[0]
+  width = rle.get('size')[1]
+  rle = mask_util.frPyObjects(rle, height, width)
+  return rle
+
 def rle_to_mask(rle, dtype=np.float32):
-  assert(isinstance(rle,dict))
-  mask = np.array(mask_util.decode(rle)>0).astype(dtype)
+  assert(isinstance(rle,dict))  
+  mask = np.array(mask_util.decode(rle),dtype=dtype)
+  mask = np.array(mask>0, dtype=dtype)
   return mask
 
 def flip_segms(segms, height, width):
@@ -45,13 +59,9 @@ def flip_segms(segms, height, width):
     return flipped_poly.tolist()
 
   def _flip_rle(rle, height, width):
-    if 'counts' in rle and type(rle['counts']) == list:
-      # Magic RLE format handling painfully discovered by looking at the
-      # COCO API showAnns function.
-      rle = mask_util.frPyObjects([rle], height, width)
     mask = mask_util.decode(rle)
-    mask = mask[:, ::-1, :]
-    rle = mask_util.encode(np.array(mask, order='F', dtype=np.uint8))
+    mask = mask[:, ::-1]
+    rle = binary_mask_to_rle(np.array(mask>0,dtype=np.uint8))
     return rle
 
   flipped_segms = []
@@ -72,7 +82,6 @@ def polys_to_mask(polygons, height, width):
     is understood to be enclosed inside a height x width image. The resulting
     mask is therefore of shape (height, width).
   """
-  rle = mask_util.frPyObjects(polygons, height, width)
   mask = np.array(mask_util.decode(rle), dtype=np.float32)
   # Flatten in case polygons was a list
   mask = np.sum(mask, axis=2)
@@ -94,38 +103,64 @@ def mask_to_bbox(mask):
   y1 = ys[-1]
   return np.array((x0, y0, x1, y1), dtype=np.float32)
 
+def round_to_int_box(box):
+  new_box = np.zeros(box.shape,np.int32)
+  for idx in range(len(box)):
+    new_box[idx] = int(box[idx]+0.5)
+  return new_box
+
 def polys_to_mask_wrt_box(polygons, box, M):
   """Convert from the COCO polygon segmentation format to a binary mask
     encoded as a 2D array of data type numpy.float32. The polygon segmentation
     is understood to be enclosed in the given box and rasterized to an M x M
     mask. The resulting mask is therefore of shape (M, M).
   """
-  w = box[2] - box[0]
-  h = box[3] - box[1]
-
-  w = np.maximum(w, 1)
-  h = np.maximum(h, 1)
+  
   mask = None
-  if isinstance(polygons[0], dict):
-    assert(len(polygons)==1)
-    x1,y1,x2,y2 = box
-    dsize = (M,M)
-    mask = rle_to_mask(poly)
-    mask = cv2.resize(mask[y1:y2+1,x1:x2+1],dsize = dsize,interpolation = cv2.INTER_NEAREST)
-    mask = np.array(mask > 0, dtype=np.float32)
-  else:
-    polygons_norm = []
-    for poly in polygons:
-      p = np.array(poly, dtype=np.float32)
-      p[0::2] = (p[0::2] - box[0]) * M / w
-      p[1::2] = (p[1::2] - box[1]) * M / h
-      polygons_norm.append(p)
+  if isinstance(polygons, dict):
+      box = round_to_int_box(box)
+      w = box[2] - box[0]
+      h = box[3] - box[1]
+      w = np.maximum(w, 1)
+      h = np.maximum(h, 1)
 
-    rle = mask_util.frPyObjects(polygons_norm, M, M)
-    mask = np.array(mask_util.decode(rle), dtype=np.float32)
-    # Flatten in case polygons was a list
-    mask = np.sum(mask, axis=2)
-    mask = np.array(mask > 0, dtype=np.float32)
+      x1,y1,x2,y2 = box
+      dsize = (M,M)
+      mask = rle_to_mask(polygons)
+      mask = cv2.resize(mask[y1:y2+1,x1:x2+1],dsize = dsize,interpolation = cv2.INTER_NEAREST)
+      mask = np.array(mask > 0, dtype=np.float32)
+  elif isinstance(polygons[0], list) and isinstance(polygons[0], dict):
+      assert(len(polygons)==1)
+      box = round_to_int_box(box)
+      w = box[2] - box[0]
+      h = box[3] - box[1]
+      w = np.maximum(w, 1)
+      h = np.maximum(h, 1)
+
+      poly = polygons[0]
+      x1,y1,x2,y2 = box
+      dsize = (M,M)
+      mask = rle_to_mask(poly)
+      mask = cv2.resize(mask[y1:y2+1,x1:x2+1],dsize = dsize,interpolation = cv2.INTER_NEAREST)
+      mask = np.array(mask > 0, dtype=np.float32)
+  else:
+      w = box[2] - box[0]
+      h = box[3] - box[1]
+
+      w = np.maximum(w, 1)
+      h = np.maximum(h, 1)
+      polygons_norm = []
+      for poly in polygons:
+        p = np.array(poly, dtype=np.float32)
+        p[0::2] = (p[0::2] - box[0]) * M / w
+        p[1::2] = (p[1::2] - box[1]) * M / h
+        polygons_norm.append(p)
+
+      rle = mask_util.frPyObjects(polygons_norm, M, M)
+      mask = np.array(mask_util.decode(rle), dtype=np.float32)
+      # Flatten in case polygons was a list
+      mask = np.sum(mask, axis=2)
+      mask = np.array(mask > 0, dtype=np.float32)
   return mask
 
 
@@ -133,8 +168,9 @@ def polys_to_boxes(polys):
   """Convert a list of polygons into an array of tight bounding boxes."""
   boxes_from_polys = np.zeros((len(polys), 4), dtype=np.float32)
   for i in range(len(polys)):
-    poly = polys[i]    
-    if isinstance(poly,dict):
+    poly = polys[i]
+    assert(isinstance(poly, dict))
+    if isinstance(poly, dict):
       #polygon in rle format
       #print('polygon to boxes(rle format).')
       mask = rle_to_mask(poly,np.uint8)
@@ -218,7 +254,8 @@ def rle_mask_voting(top_masks,
       mask = np.array(soft_mask > 1e-5, dtype=np.uint8)
     else:
       raise NotImplementedError('Method {} is unknown'.format(method))
-    rle = mask_util.encode(np.array(mask[:, :, np.newaxis], order='F'))[0]
+    #rle = mask_util.encode(np.array(mask[:, :, np.newaxis], order='F'))[0]
+    rle = binary_mask_to_rle(mask[:, :, np.newaxis])
     top_segms_out.append(rle)
 
   return top_segms_out

@@ -170,17 +170,19 @@ def main():
     elif args.dataset == "davis2017":
         cfg.TRAIN.DATASETS = ('davis_train',)
         #For davis, coco category is used.
-        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
+        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background        
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
-
-    #Add unknow class type if necessary.
-    if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
-        cfg.MODEL.NUM_CLASSES +=1
 
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
         cfg_from_list(args.set_cfgs)
+        
+        #Add unknow class type if necessary.
+    if cfg.MODEL.IDENTITY_TRAINING:
+          cfg.MODEL.TOTAL_INSTANCE_NUM = 145
+    if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
+        cfg.MODEL.NUM_CLASSES +=1   
 
     ### Adaptively adjust some configs ###
     original_batch_size = cfg.NUM_GPUS * cfg.TRAIN.IMS_PER_BATCH
@@ -330,8 +332,7 @@ def main():
         load_name = args.load_ckpt
         logging.info("loading checkpoint %s", load_name)
         checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
-        #TODO: load_ckpt_no_mapping(maskRCNN, checkpoint['model'])
-        net_utils.load_ckpt(maskRCNN, checkpoint['model'])
+        net_utils.load_ckpt_no_mapping(maskRCNN, checkpoint['model'])
         if args.resume:
             args.start_step = checkpoint['step'] + 1
             if 'train_size' in checkpoint:  # For backward compatibility

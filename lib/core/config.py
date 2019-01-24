@@ -930,8 +930,7 @@ __C.MODEL.IDENTITY_TRAINING = False
 # Dynamically determine the instance number
 __C.MODEL.TOTAL_INSTANCE_NUM = 0
 __C.MODEL.LOAD_FLOW_FILE = False
-__C.TRAIN.SEQUENCE_LENGTH = 5
-__C.TEST.SEQUENCE_LENGTH = 5
+__C.SEQUENCE_LENGTH = 20
 
 # ---------------------------------------------------------------------------- #
 # GroupNorm options

@@ -43,6 +43,9 @@ def get_fast_rcnn_blob_names(is_training=True):
         # labels_int32 blob: R categorical labels in [0, ..., K] for K
         # foreground classes plus background
         blob_names += ['labels_int32']
+    if is_training and cfg.MODEL.IDENTITY_TRAINING:
+        # add id labels        
+        blob_names += ['global_id_int32']
     if is_training:
         # bbox_targets blob: R bounding-box regression targets with 4
         # targets per class
@@ -159,10 +162,9 @@ def _sample_rois(roidb, im_scale, batch_idx):
     # The indices that we're selecting (both fg and bg)
     keep_inds = np.append(fg_inds, bg_inds)
     # Label is the class each RoI has max overlap with
-    
+ 
     sampled_labels = roidb['max_classes'][keep_inds]
     sampled_labels[fg_rois_per_this_image:] = 0  # Label bg RoIs with class 0
-    
     if cfg.MODEL.IDENTITY_TRAINING:
       sampled_ids = roidb['max_global_id'][keep_inds]
       sampled_ids[fg_rois_per_this_image:] = 0 # Label instance to be background ID

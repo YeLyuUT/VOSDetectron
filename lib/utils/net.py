@@ -153,7 +153,7 @@ def save_ckpt(output_dir, args, model, optimizer):
     logger.info('save model: %s', save_name)
 
 
-def load_ckpt(model, ckpt):
+def load_ckpt(model, ckpt, no_load_mismatched_shape = True):
     """Load checkpoint"""
     mapping, _ = model.detectron_weight_mapping
     state_dict = {}    
@@ -164,9 +164,15 @@ def load_ckpt(model, ckpt):
     ckpt_weights_not_in_model = set(ckpt.keys())-set(state_dict.keys())
     print('load check point---following model weights not in ckpt:',model_weights_not_in_ckpt)
     print('load check point---following ckpt weights not in model:',ckpt_weights_not_in_model)
+    weights_in_both = set(model.state_dict().keys()).intersection(set(state_dict.keys()))
+    weights_shape_mismatch = []
+    for w in weights_in_both:
+      if not state_dict[w].shape==model.state_dict()[w].shape:                          
+          weights_shape_mismatch.append(state_dict.pop(w))
+    print('load check point---following ckpt weights in model, but shape mismatch:',weights_shape_mismatch)
     model.load_state_dict(state_dict, strict=False)
     
-def load_ckpt_no_mapping(model,ckpt):
+def load_ckpt_no_mapping(model,ckpt, no_load_mismatched_shape = True):
     """Load checkpoint"""
     state_dict = {}
     for name in ckpt:
@@ -175,6 +181,13 @@ def load_ckpt_no_mapping(model,ckpt):
     ckpt_weights_not_in_model = set(ckpt.keys())-set(state_dict.keys())
     print('load check point---following model weights not in ckpt:',model_weights_not_in_ckpt)
     print('load check point---following ckpt weights not in model:',ckpt_weights_not_in_model)
+    weights_in_both = set(model.state_dict().keys()).intersection(set(state_dict.keys()))
+    weights_shape_mismatch = []
+    for w in weights_in_both:
+      if not state_dict[w].shape==model.state_dict()[w].shape:   
+          state_dict.pop(w)                       
+          weights_shape_mismatch.append(w)
+    print('load check point---following ckpt weights in model, but shape mismatch:',weights_shape_mismatch)
     model.load_state_dict(state_dict, strict=False)
 
 def get_group_gn(dim):

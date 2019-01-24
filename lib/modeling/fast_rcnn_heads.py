@@ -10,15 +10,17 @@ import utils.net as net_utils
 
 
 class fast_rcnn_outputs(nn.Module):
-    def __init__(self, dim_in, num_classes, num_ids=None):
+    def __init__(self, dim_in):
         super().__init__()
-        self.cls_score = nn.Linear(dim_in, num_classes)
+        self.cls_score = nn.Linear(dim_in, cfg.MODEL.NUM_CLASSES)
         if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:  # bg and fg
             self.bbox_pred = nn.Linear(dim_in, 4 * 2)
         else:
-            self.bbox_pred = nn.Linear(dim_in, 4 * num_classes)
+            self.bbox_pred = nn.Linear(dim_in, 4 * cfg.MODEL.NUM_CLASSES)
         if cfg.MODEL.IDENTITY_TRAINING:
-            self.identity_score = nn.Linear(dim_in, num_ids)            
+            self.identity_score = nn.Linear(dim_in, cfg.MODEL.TOTAL_INSTANCE_NUM)         
+        print('fast_rcnn_outputs-cfg.MODEL.NUM_CLASSES:',cfg.MODEL.NUM_CLASSES)   
+        print('fast_rcnn_outputs-cfg.MODEL.TOTAL_INSTANCE_NUM:',cfg.MODEL.TOTAL_INSTANCE_NUM)
         self._init_weights()
 
     def _init_weights(self):
@@ -27,8 +29,8 @@ class fast_rcnn_outputs(nn.Module):
         init.normal_(self.bbox_pred.weight, std=0.001)
         init.constant_(self.bbox_pred.bias, 0)
         if cfg.MODEL.IDENTITY_TRAINING:
-          init.normal_(self.identity_pred.weight, std=0.001)
-          init.constant_(self.identity_pred.bias, 0)
+          init.normal_(self.identity_score.weight, std=0.001)
+          init.constant_(self.identity_score.bias, 0)
 
     def detectron_weight_mapping(self):
         detectron_weight_mapping = {

@@ -38,7 +38,9 @@ def add_mask_rcnn_blobs(blobs, sampled_boxes, roidb, im_scale, batch_idx):
     M = cfg.MRCNN.RESOLUTION
     polys_gt_inds = np.where((roidb['gt_classes'] > 0) &
                              (roidb['is_crowd'] == 0))[0]
+    #print('add_mask_rcnn_blobs-roidb["segms"]:',roidb['segms'])
     polys_gt = [roidb['segms'][i] for i in polys_gt_inds]
+    #print('add_mask_rcnn_blobs-polys_gt:',polys_gt)
     boxes_from_polys = segm_utils.polys_to_boxes(polys_gt)
     # boxes_from_polys = [roidb['boxes'][i] for i in polys_gt_inds]
     fg_inds = np.where(blobs['labels_int32'] > 0)[0]
