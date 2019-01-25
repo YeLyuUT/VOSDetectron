@@ -176,14 +176,14 @@ def main():
 
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
-        cfg_from_list(args.set_cfgs)
+        cfg_from_list(args.set_cfgs)        
         
-        #Add unknow class type if necessary.
     if cfg.MODEL.IDENTITY_TRAINING and cfg.MODEL.IDENTITY_REPLACE_CLASS:
         cfg.MODEL.NUM_CLASSES = 145
         cfg.MODEL.IDENTITY_TRAINING = False
         cfg.MODEL.ADD_UNKNOWN_CLASS = False
 
+    #Add unknow class type if necessary.
     if cfg.MODEL.IDENTITY_TRAINING:
           cfg.MODEL.TOTAL_INSTANCE_NUM = 145
     if cfg.MODEL.ADD_UNKNOWN_CLASS is True:

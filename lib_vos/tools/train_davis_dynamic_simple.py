@@ -168,13 +168,19 @@ def main():
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
 
-    #Add unknow class type if necessary.
-    if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
-        cfg.MODEL.NUM_CLASSES +=1
-
+    
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
         cfg_from_list(args.set_cfgs)
+
+    if cfg.MODEL.IDENTITY_TRAINING and cfg.MODEL.IDENTITY_REPLACE_CLASS:
+        cfg.MODEL.NUM_CLASSES = 145
+        cfg.MODEL.IDENTITY_TRAINING = False
+        cfg.MODEL.ADD_UNKNOWN_CLASS = False
+
+    #Add unknow class type if necessary.
+    if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
+        cfg.MODEL.NUM_CLASSES +=1
 
     ### Adaptively adjust some configs ###
     original_batch_size = cfg.NUM_GPUS * cfg.TRAIN.IMS_PER_BATCH

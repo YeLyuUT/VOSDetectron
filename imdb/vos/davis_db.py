@@ -81,13 +81,7 @@ class DAVIS_imdb(vos_imdb):
       assert(isinstance(cls_mapper, dict))
       self.cls_mapper = cls_mapper
     # Here we adopt COCO classes.
-    
-    #self.COCO = datasets.get_coco_dataset()
-    #category_ids = list(self.COCO.classes.keys())
-    #categories = list(self.COCO.classes.values())
-    #self.category_to_id_map = dict(zip(categories, category_ids))
-    
-    
+        
     self.number_of_instance_ids = 0
     self.global_instance_id_start_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
     self.instance_number_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
@@ -95,6 +89,12 @@ class DAVIS_imdb(vos_imdb):
     self.debug_timer = Timer()
     self.keypoints = None
     self.load_flow = load_flow
+
+    #self.COCO = datasets.get_coco_dataset()
+    #category_ids = list(self.COCO.classes.keys())
+    #categories = list(self.COCO.classes.values())
+    #self.category_to_id_map = dict(zip(categories, category_ids))    
+    #self.classes = ['__background__']+categories+['__unknown__']
 
     self.classes = ['%03d'%(i) for i in range(self.number_of_instance_ids)]
     category_ids = list(range(self.number_of_instance_ids))
