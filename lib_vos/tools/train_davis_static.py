@@ -170,7 +170,8 @@ def main():
     elif args.dataset == "davis2017":
         cfg.TRAIN.DATASETS = ('davis_train',)
         #For davis, coco category is used.
-        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background        
+        #cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background        
+        cfg.MODEL.NUM_CLASSES = 145
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
 

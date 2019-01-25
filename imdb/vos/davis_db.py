@@ -26,7 +26,7 @@ from davis import io,DAVISLoader,phase
 
 from utils.timer import Timer
 import utils.boxes as box_utils
-from utils.segms import binary_mask_to_rle
+#from utils.segms import binary_mask_to_rle
 import datasets.dummy_datasets as datasets
 
 if not cfg.COCO_API_HOME in sys.path:
@@ -168,6 +168,10 @@ class DAVIS_imdb(vos_imdb):
       return -1
     else:
       return idx-start+1
+
+  def id_mask_to_color(self, id_mask, seq_idx, ):
+      assert(id_mask.ndim==2)
+      return cfg_davis.palette(id_mask)[...,[2,1,0]]
 
   def set_global_instance_id_start(self):
       #start from 1. 0 is reserved for background.      
@@ -326,7 +330,8 @@ class DAVIS_imdb(vos_imdb):
         assert(len(set(mask.reshape(-1))-{0,1})==0)
         x,y,w,h = cv2.boundingRect(mask)
 
-        obj['segmentation'] = binary_mask_to_rle(mask)
+        #obj['segmentation'] = binary_mask_to_rle(mask)
+        obj['segmentation'] = mask_util.encode(np.array(mask, order='F', dtype=np.uint8))
         obj['area'] = np.sum(mask)
         obj['iscrowd'] = 0
         obj['bbox'] = x,y,w,h
@@ -334,7 +339,7 @@ class DAVIS_imdb(vos_imdb):
           #set category id by cls_mapper.
           obj['category_id'] = self.cls_mapper[val]
         else:
-          obj['category_id'] = None
+          obj['category_id'] = val
         obj['instance_id'] = val
         assert(self.global_instance_id_start_of_seq[seq_idx]!=0)
         # val-1 to remove background.

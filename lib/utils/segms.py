@@ -31,6 +31,7 @@ from itertools import groupby
 import pycocotools.mask as mask_util
 import cv2
 
+'''
 def binary_mask_to_rle(binary_mask):
   binary_mask = np.asfortranarray(binary_mask)
   rle = {'counts': [], 'size': list(binary_mask.shape)}
@@ -43,9 +44,16 @@ def binary_mask_to_rle(binary_mask):
   width = rle.get('size')[1]
   rle = mask_util.frPyObjects(rle, height, width)
   return rle
+'''
 
 def rle_to_mask(rle, dtype=np.float32):
   assert(isinstance(rle,dict))  
+  if 'counts' in rle and type(rle['counts']) == list:
+      # Magic RLE format handling painfully discovered by looking at the
+      # COCO API showAnns function.
+      height= rle.get('size')[0]
+      width = rle.get('size')[1]
+      rle = mask_util.frPyObjects([rle], height, width)
   mask = np.array(mask_util.decode(rle),dtype=dtype)
   mask = np.array(mask>0, dtype=dtype)
   return mask
@@ -59,19 +67,25 @@ def flip_segms(segms, height, width):
     return flipped_poly.tolist()
 
   def _flip_rle(rle, height, width):
+    if 'counts' in rle and type(rle['counts']) == list:
+      # Magic RLE format handling painfully discovered by looking at the
+      # COCO API showAnns function.
+      rle = mask_util.frPyObjects([rle], height, width)
     mask = mask_util.decode(rle)
     mask = mask[:, ::-1]
-    rle = binary_mask_to_rle(np.array(mask>0,dtype=np.uint8))
+    #faster but cannot handle holes.
+    rle = mask_util.encode(np.array(mask, order='F', dtype=np.uint8))
+    #rle = binary_mask_to_rle(np.array(mask>0,dtype=np.uint8))
     return rle
 
   flipped_segms = []
   for segm in segms:
-    if type(segm) == list:
+    if isinstance(segm, list):
       # Polygon format
       flipped_segms.append([_flip_poly(poly, width) for poly in segm])
     else:
       # RLE format
-      assert type(segm) == dict
+      assert(isinstance(segm, dict))
       flipped_segms.append(_flip_rle(segm, height, width))
   return flipped_segms
 
@@ -115,7 +129,6 @@ def polys_to_mask_wrt_box(polygons, box, M):
     is understood to be enclosed in the given box and rasterized to an M x M
     mask. The resulting mask is therefore of shape (M, M).
   """
-  
   mask = None
   if isinstance(polygons, dict):
       box = round_to_int_box(box)
@@ -169,7 +182,6 @@ def polys_to_boxes(polys):
   boxes_from_polys = np.zeros((len(polys), 4), dtype=np.float32)
   for i in range(len(polys)):
     poly = polys[i]
-    assert(isinstance(poly, dict))
     if isinstance(poly, dict):
       #polygon in rle format
       #print('polygon to boxes(rle format).')
@@ -254,8 +266,8 @@ def rle_mask_voting(top_masks,
       mask = np.array(soft_mask > 1e-5, dtype=np.uint8)
     else:
       raise NotImplementedError('Method {} is unknown'.format(method))
-    #rle = mask_util.encode(np.array(mask[:, :, np.newaxis], order='F'))[0]
-    rle = binary_mask_to_rle(mask[:, :, np.newaxis])
+    rle = mask_util.encode(np.array(mask[:, :, np.newaxis], order='F'))[0]
+    #rle = binary_mask_to_rle(mask[:, :, np.newaxis])[0]
     top_segms_out.append(rle)
 
   return top_segms_out

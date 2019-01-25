@@ -120,7 +120,7 @@ if __name__=='__main__':
     db.set_to_sequence(seq_idx)
     seq_name = db.get_current_seq_name()
     cur_output_dir = osp.join(args.output_dir,seq_name)
-    if args.no_overwrite is True and osp.exist(osp.join(cur_output_dir,'results.pdf')):
+    if args.no_overwrite is True and osp.exists(osp.join(cur_output_dir,'results.pdf')):
       continue
     if not osp.isdir(cur_output_dir):
       os.makedirs(cur_output_dir)
