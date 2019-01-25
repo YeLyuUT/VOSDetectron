@@ -170,8 +170,7 @@ def main():
     elif args.dataset == "davis2017":
         cfg.TRAIN.DATASETS = ('davis_train',)
         #For davis, coco category is used.
-        #cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background        
-        cfg.MODEL.NUM_CLASSES = 145
+        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background                
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
 
@@ -180,6 +179,11 @@ def main():
         cfg_from_list(args.set_cfgs)
         
         #Add unknow class type if necessary.
+    if cfg.MODEL.IDENTITY_TRAINING and cfg.MODEL.IDENTITY_REPLACE_CLASS:
+        cfg.MODEL.NUM_CLASSES = 145
+        cfg.MODEL.IDENTITY_TRAINING = False
+        cfg.MODEL.ADD_UNKNOWN_CLASS = False
+
     if cfg.MODEL.IDENTITY_TRAINING:
           cfg.MODEL.TOTAL_INSTANCE_NUM = 145
     if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
