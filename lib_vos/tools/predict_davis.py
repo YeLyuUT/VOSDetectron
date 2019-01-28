@@ -29,7 +29,8 @@ import distutils.util
 import utils.misc as misc_utils
 import utils.net as net_utils
 import utils.vis as vis_utils
-import datasets.dummy_datasets as datasets
+#import datasets.dummy_datasets as datasets
+from vos import davis_db as datasets
 import argparse
 
 def parse_args():
@@ -88,6 +89,11 @@ if __name__=='__main__':
       dataset = datasets.get_coco_dataset()
       cfg.MODEL.NUM_CLASSES = len(dataset.classes)
       print('cfg.MODEL.NUM_CLASSES:',cfg.MODEL.NUM_CLASSES)
+  elif args.dataset.startswith("davis"):
+      cfg.MODEL.NUM_CLASSES = 81
+      # Load train data, which has the corresponding global id.
+      cfg.TRAIN.DATASETS = ('davis_train',)
+      dataset = davis_db.DAVIS_imdb(db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False)
   else:
       raise ValueError('Unexpected dataset name: {}'.format(args.dataset))
 
@@ -98,6 +104,19 @@ if __name__=='__main__':
   cfg_from_file(args.cfg_file)
   if args.set_cfgs is not None:
       cfg_from_list(args.set_cfgs)
+      
+  if cfg.MODEL.IDENTITY_TRAINING and cfg.MODEL.IDENTITY_REPLACE_CLASS:
+        cfg.MODEL.NUM_CLASSES = 145
+        cfg.MODEL.IDENTITY_TRAINING = False
+        cfg.MODEL.ADD_UNKNOWN_CLASS = False
+
+  #Add unknow class type if necessary.
+  if cfg.MODEL.IDENTITY_TRAINING:
+        cfg.MODEL.TOTAL_INSTANCE_NUM = 145
+  if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
+      cfg.MODEL.NUM_CLASSES +=1   
+
+      
   assert bool(args.load_ckpt)
   assert_and_infer_cfg()
   maskRCNN = vos_model_builder.Generalized_VOS_RCNN()

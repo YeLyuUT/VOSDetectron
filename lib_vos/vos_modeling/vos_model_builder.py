@@ -70,7 +70,6 @@ def check_inference(net_func):
 class Generalized_VOS_RCNN(nn.Module):
     def __init__(self):
         super().__init__()
-
         # For cache
         self.mapping_to_detectron = None
         self.orphans_in_detectron = None
@@ -253,7 +252,9 @@ class Generalized_VOS_RCNN(nn.Module):
             # bbox loss
             if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
               cls_weights = torch.tensor([1.]*(cfg.MODEL.NUM_CLASSES-1)+[0.], device=cls_score.device)
-              
+            else:
+                cls_weights = None
+
             if not cfg.MODEL.IDENTITY_TRAINING:
               loss_cls, loss_bbox, accuracy_cls = fast_rcnn_heads.fast_rcnn_losses(
                   cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'],

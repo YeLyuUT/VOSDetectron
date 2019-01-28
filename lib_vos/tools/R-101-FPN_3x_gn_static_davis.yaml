@@ -14,7 +14,7 @@ SOLVER:
   BASE_LR: 0.002
   GAMMA: 0.1
   MAX_ITER: 90000
-  STEPS: [0, 65000, 80000]
+  STEPS: [0, 60000, 80000]
 FPN:
   FPN_ON: True
   MULTILEVEL_ROIS: True
@@ -34,9 +34,9 @@ FAST_RCNN:
   ROI_XFORM_SAMPLING_RATIO: 2
 MRCNN:
   ROI_MASK_HEAD: mask_rcnn_heads.mask_rcnn_fcn_head_v1up4convs_gn  # Note: this is a GN mask head
-  RESOLUTION: 28  # (output mask resolution) default 14
+  RESOLUTION: 56  # (output mask resolution) default 14
   ROI_XFORM_METHOD: RoIAlign
-  ROI_XFORM_RESOLUTION: 14  # default 7
+  ROI_XFORM_RESOLUTION: 28  # default 7
   ROI_XFORM_SAMPLING_RATIO: 2  # default 0
   DILATION: 1  # default 2
   CONV_INIT: MSRAFill  # default GaussianFill
@@ -46,15 +46,15 @@ CONVGRU:
 RPN:
   ASPECT_RATIOS: (0.2, 0.5, 1, 2, 5)
 TRAIN:
-  SCALES: (800,)
+  SCALES: (704,)
   MAX_SIZE: 1333
   IMS_PER_BATCH: 1
   BATCH_SIZE_PER_IM: 512
   RPN_PRE_NMS_TOP_N: 2000  # Per FPN level
-  RPN_FG_FRACTION: 0.5
+  RPN_FG_FRACTION: 0.9
   USE_FLIPPED: True
 TEST:
-  SCALE: 800
+  SCALE: 704
   MAX_SIZE: 1333
   NMS: 0.5
   RPN_PRE_NMS_TOP_N: 1000  # Per FPN level

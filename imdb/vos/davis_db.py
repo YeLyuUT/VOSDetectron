@@ -26,6 +26,7 @@ from davis import io,DAVISLoader,phase
 
 from utils.timer import Timer
 import utils.boxes as box_utils
+
 #from utils.segms import binary_mask_to_rle
 import datasets.dummy_datasets as datasets
 
@@ -34,6 +35,7 @@ if not cfg.COCO_API_HOME in sys.path:
 
 from pycocotools import mask as COCOmask
 from pycocotools.coco import COCO
+import pycocotools.mask as mask_util
 
 splits = ['train','val','trainval','test-dev']
 
@@ -83,8 +85,8 @@ class DAVIS_imdb(vos_imdb):
     # Here we adopt COCO classes.
         
     self.number_of_instance_ids = 0
-    self.global_instance_id_start_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
-    self.instance_number_of_seq = np.zeros(self.get_num_sequence(),dtype=np.uint8)
+    self.global_instance_id_start_of_seq = np.zeros(self.get_num_sequence(),dtype=np.int32)
+    self.instance_number_of_seq = np.zeros(self.get_num_sequence(),dtype=np.int32)
     self.set_global_instance_id_start()
     self.debug_timer = Timer()
     self.keypoints = None
@@ -95,11 +97,11 @@ class DAVIS_imdb(vos_imdb):
     #categories = list(self.COCO.classes.values())
     #self.category_to_id_map = dict(zip(categories, category_ids))    
     #self.classes = ['__background__']+categories+['__unknown__']
-
-    self.classes = ['%03d'%(i) for i in range(self.number_of_instance_ids)]
     category_ids = list(range(self.number_of_instance_ids))
+    self.classes = [self.global_id_to_seq_name_plus_id(i) for i in range(self.number_of_instance_ids)]  
     categories = self.classes
     self.category_to_id_map = dict(zip(categories, category_ids))
+    print(self.category_to_id_map)
     self.num_classes = len(self.classes)
     
   @property
@@ -143,7 +145,15 @@ class DAVIS_imdb(vos_imdb):
     return cfg_davis.palette[self.db.annotations[self.seq_idx][idx]][...,[2,1,0]]
 
   def get_gt(self,idx):
-    return self.db.annotations[self.seq_idx][idx]
+    ann = self.db.annotations[self.seq_idx][idx]
+    vals = np.unique(ann)
+    out = np.array(ann)
+    for val in vals:
+      if val==255:
+        print('current_seq %d, idx %d has val eq 255.'%(self.seq_idx, idx))
+        assert(val==vals[-1])
+        out[ann==val] = len(vals)-1
+    return out
 
   def get_bboxes(self,idx):
     gt = self.get_gt(idx)
@@ -160,6 +170,7 @@ class DAVIS_imdb(vos_imdb):
         boxes.append([x,y,w,h])
     return boxes
 
+  #if idx eq 255, it has to be mapped to the last index of the idx.
   def local_id_to_global_id(self, idx, seq_idx):
     assert(idx>0 and idx<=self.number_of_instance_ids)
     return self.global_instance_id_start_of_seq[seq_idx]+idx-1
@@ -174,6 +185,23 @@ class DAVIS_imdb(vos_imdb):
       return -1
     else:
       return idx-start+1
+
+  def global_id_to_seq_id_and_local_id(self, idx):
+      if idx == 0:
+          return 0,0
+      seq_idx = np.where((idx>=np.array(self.global_instance_id_start_of_seq))&(idx<np.array(self.global_instance_id_start_of_seq
+        +np.array(self.instance_number_of_seq))))[0]
+      #should have only one seq_idx
+      assert(seq_idx.shape[0]==1)
+      seq_idx = seq_idx[0]
+      local_idx = self.global_id_to_local_id(idx, seq_idx)
+      return seq_idx, local_idx
+
+  def global_id_to_seq_name_plus_id(self, idx):
+      if idx == 0:
+          return 'background'
+      seq_idx, local_idx = self.global_id_to_seq_id_and_local_id(idx)      
+      return self.db.sequences[seq_idx].name+'_%02d'%(local_idx)
 
   def id_mask_to_color(self, id_mask, seq_idx, ):
       assert(id_mask.ndim==2)
@@ -329,7 +357,7 @@ class DAVIS_imdb(vos_imdb):
     objs = []
     for val in vals:
       #it is background when val==0
-      if val !=0:        
+      if val !=0:
         obj={}
         mask = np.array(gt==val,dtype=np.uint8)
         #make sure gt==val is converted to value in 0 and 1.
@@ -555,11 +583,11 @@ def _merge_proposal_boxes_into_roidb(roidb, box_list):
             (num_boxes, entry['gt_overlaps'].shape[1]),
             dtype=entry['gt_overlaps'].dtype
         )
-        
+        '''
         gt_overlaps_id = np.zeros(
             (num_boxes, entry['gt_overlaps_id'].shape[1]),
             dtype=entry['gt_overlaps_id'].dtype
-        )
+        )'''
                 
         box_to_gt_ind_map = -np.ones(
             (num_boxes), dtype=entry['box_to_gt_ind_map'].dtype
@@ -572,8 +600,9 @@ def _merge_proposal_boxes_into_roidb(roidb, box_list):
         if len(gt_inds) > 0:
             gt_boxes = entry['boxes'][gt_inds, :]
             gt_classes = entry['gt_classes'][gt_inds]
+            '''
             global_instance_id = entry['global_instance_id'][gt_inds]
-            
+            '''
             proposal_to_gt_overlaps = box_utils.bbox_overlaps(
                 boxes.astype(dtype=np.float32, copy=False),
                 gt_boxes.astype(dtype=np.float32, copy=False)
@@ -587,7 +616,9 @@ def _merge_proposal_boxes_into_roidb(roidb, box_list):
             I = np.where(maxes > 0)[0]
             # Record max overlaps with the class of the appropriate gt box
             gt_overlaps[I, gt_classes[argmaxes[I]]] = maxes[I]
+            '''
             gt_overlaps_id[I,global_instance_id[argmaxes[I]]] = maxes[I]
+            '''
             #print('_merge_proposal_boxes_into_roidb',gt_overlaps.shape)
             #print('_merge_proposal_boxes_into_roidb',gt_overlaps_id.shape)
             box_to_gt_ind_map[I] = gt_inds[argmaxes[I]]
@@ -609,11 +640,12 @@ def _merge_proposal_boxes_into_roidb(roidb, box_list):
         )
         entry['gt_overlaps'] = scipy.sparse.csr_matrix(entry['gt_overlaps'])
         
+        '''
         entry['gt_overlaps_id'] = np.append(
             entry['gt_overlaps_id'].toarray(), gt_overlaps_id, axis=0
         )
         entry['gt_overlaps_id'] = scipy.sparse.csr_matrix(entry['gt_overlaps_id'])
-        
+        '''
         entry['is_crowd'] = np.append(
             entry['is_crowd'],
             np.zeros((num_boxes), dtype=entry['is_crowd'].dtype)
@@ -638,14 +670,17 @@ def _add_class_assignments(roidb):
       entry['max_classes'] = max_classes
       entry['max_overlaps'] = max_overlaps
       
+      '''
       gt_overlaps_id = entry['gt_overlaps_id'].toarray()
+      '''
       # max overlap with gt over classes (columns)
+      '''
       max_overlaps_id = gt_overlaps_id.max(axis=1)
       # gt class that had the max overlap
       max_global_id = gt_overlaps_id.argmax(axis=1)
       entry['max_global_id'] = max_global_id
       entry['max_overlaps_id'] = max_overlaps_id
-      
+      '''
       # sanity checks
       # if max overlap is 0, the class must be background (class 0)
       zero_inds = np.where(max_overlaps == 0)[0]
@@ -653,7 +688,7 @@ def _add_class_assignments(roidb):
       # if max overlap > 0, the class must be a fg class (not class 0)
       nonzero_inds = np.where(max_overlaps > 0)[0]
       assert all(max_classes[nonzero_inds] != 0)
-      
+      '''
       # sanity checks
       # if max overlap id is 0, the id must be background (id 0)
       zero_inds = np.where(max_overlaps_id == 0)[0]
@@ -661,6 +696,7 @@ def _add_class_assignments(roidb):
       # if max overlap id > 0, the id must be a fg id (not id 0)
       nonzero_inds = np.where(max_overlaps_id > 0)[0]
       assert all(max_global_id[nonzero_inds] != 0)
+      '''
 
 def _sort_proposals(proposals, id_field):
   """Sort proposals by the specified id field."""

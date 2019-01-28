@@ -11,6 +11,7 @@ from torch._six import int_classes as _int_classes
 from core.config import cfg
 from roi_data.minibatch import get_minibatch
 import utils.blob as blob_utils
+from random import randint as randi
 # from model.rpn.bbox_transform import bbox_transform_inv, clip_boxes
 
 def addPath(path):
@@ -50,18 +51,24 @@ class MinibatchSampler(torch_sampler.Sampler):
         self.num_data = seq_num
 
     def __iter__(self):
-        rand_perm = npr.permutation(self.num_data)
-        shuffled_seq_start_end = self.seq_start_end[rand_perm,:]
-        cfg.SEQUENCE_LENGTH
+        rand_perm = npr.permutation(self.seq_num)
+        shuffled_seq_start_end = self.seq_start_end[rand_perm,:]        
+        #randomly sample from sequence.
         idx_list = []
-        
-        ratio_list = self.ratio_list[rand_perm]
-        ratio_index = self.ratio_index[rand_perm]        
-
-        return iter()
+        for idx in range(self.seq_num):
+            cur_se = shuffled_seq_start_end[idx,:]
+            assert(cur_se[1] > cur_se[0])
+            length = cur_se[1] - cur_se[0]
+            if length<cfg.SEQUENCE_LENGTH:
+                raise ValueError('length of the sequence is shorter than cfg.SEQUENCE_LENGTH.')
+            else:
+                id_start = randi(0, length-cfg.SEQUENCE_LENGTH)
+                id_end = id_start+cfg.SEQUENCE_LENGTH
+                idx_list.append(list(range(id_start, id_end)))        
+        return iter(idx_list)
 
     def __len__(self):
-        return self.num_data
+        return self.seq_num
 
 
 class BatchSampler(torch_sampler.BatchSampler):

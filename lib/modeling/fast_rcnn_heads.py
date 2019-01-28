@@ -19,8 +19,6 @@ class fast_rcnn_outputs(nn.Module):
             self.bbox_pred = nn.Linear(dim_in, 4 * cfg.MODEL.NUM_CLASSES)
         if cfg.MODEL.IDENTITY_TRAINING:
             self.identity_score = nn.Linear(dim_in, cfg.MODEL.TOTAL_INSTANCE_NUM)         
-        print('fast_rcnn_outputs-cfg.MODEL.NUM_CLASSES:',cfg.MODEL.NUM_CLASSES)   
-        print('fast_rcnn_outputs-cfg.MODEL.TOTAL_INSTANCE_NUM:',cfg.MODEL.TOTAL_INSTANCE_NUM)
         self._init_weights()
 
     def _init_weights(self):
@@ -69,7 +67,6 @@ def fast_rcnn_losses(cls_score, bbox_pred, label_int32, bbox_targets,
     bbox_outside_weights = Variable(torch.from_numpy(bbox_outside_weights)).cuda(device_id)
     loss_bbox = net_utils.smooth_l1_loss(
         bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights)
-
     # class accuracy
     cls_preds = cls_score.max(dim=1)[1].type_as(rois_label)
     accuracy_cls = cls_preds.eq(rois_label).float().mean(dim=0)

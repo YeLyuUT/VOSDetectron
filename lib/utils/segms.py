@@ -30,7 +30,7 @@ import numpy as np
 from itertools import groupby
 import pycocotools.mask as mask_util
 import cv2
-
+import PIL
 '''
 def binary_mask_to_rle(binary_mask):
   binary_mask = np.asfortranarray(binary_mask)
@@ -131,31 +131,20 @@ def polys_to_mask_wrt_box(polygons, box, M):
   """
   mask = None
   if isinstance(polygons, dict):
-      box = round_to_int_box(box)
-      w = box[2] - box[0]
-      h = box[3] - box[1]
-      w = np.maximum(w, 1)
-      h = np.maximum(h, 1)
-
-      x1,y1,x2,y2 = box
       dsize = (M,M)
       mask = rle_to_mask(polygons)
-      mask = cv2.resize(mask[y1:y2+1,x1:x2+1],dsize = dsize,interpolation = cv2.INTER_NEAREST)
-      mask = np.array(mask > 0, dtype=np.float32)
+      mask = np.array(PIL.Image.fromarray(mask).crop(box))
+      mask = cv2.resize(mask, dsize = dsize,interpolation = cv2.INTER_LINEAR)
+      mask = np.array(mask > 0.5, dtype=np.float32)
+      
   elif isinstance(polygons[0], list) and isinstance(polygons[0], dict):
       assert(len(polygons)==1)
-      box = round_to_int_box(box)
-      w = box[2] - box[0]
-      h = box[3] - box[1]
-      w = np.maximum(w, 1)
-      h = np.maximum(h, 1)
-
       poly = polygons[0]
-      x1,y1,x2,y2 = box
       dsize = (M,M)
       mask = rle_to_mask(poly)
-      mask = cv2.resize(mask[y1:y2+1,x1:x2+1],dsize = dsize,interpolation = cv2.INTER_NEAREST)
-      mask = np.array(mask > 0, dtype=np.float32)
+      mask = np.array(PIL.Image.fromarray(mask).crop(box))
+      mask = cv2.resize(mask, dsize = dsize,interpolation = cv2.INTER_LINEAR)
+      mask = np.array(mask > 0.5, dtype=np.float32)
   else:
       w = box[2] - box[0]
       h = box[3] - box[1]

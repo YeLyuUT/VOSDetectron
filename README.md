@@ -1,3 +1,5 @@
+#If the number of davis_db classes is changed. Please delete the cached dbs.
+
 # A Pytorch Implementation of Detectron
 
 [![Build Status](https://travis-ci.com/roytseng-tw/Detectron.pytorch.svg?branch=master)](https://travis-ci.com/roytseng-tw/Detectron.pytorch)
