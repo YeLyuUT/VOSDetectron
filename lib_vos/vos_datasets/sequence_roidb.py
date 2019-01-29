@@ -1,18 +1,3 @@
-# Copyright (c) 2017-present, Facebook, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-##############################################################################
-
 """Functions for common roidb manipulations."""
 
 from __future__ import absolute_import
@@ -39,7 +24,6 @@ import utils.keypoints as keypoint_utils
 import utils.segms as segm_utils
 import utils.blob as blob_utils
 from core.config import cfg
-from .json_dataset import JsonDataset
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +66,12 @@ def sequenced_roidb_for_training(dataset_names, proposal_files):
     for r in roidbss[1:]:
         roidbs.extend(r)
     
-    for i in range(len(roidbs)):
-      roidbs[i] = filter_for_training(roidbs[i])
+    #remove filter.
+    #for i in range(len(roidbs)):
+     # roidbs[i] = filter_for_training(roidbs[i])
 
     logger.info('Computing bounding-box regression targets...')
-    for roidb in roidbs
+    for roidb in roidbs:
       add_bbox_regression_targets(roidb)
     logger.info('done')
 
@@ -107,7 +92,7 @@ def _merge_roidbs(roidbs):
       seq_start_end[seq_idx,0] = seq_start
       seq_end = seq_start+len(roidb)
       seq_start_end[seq_idx,1] = seq_end
-      seq_start = seq_end+1
+      seq_start = seq_end
       merged_roidb.extend(roidb)
     return merged_roidb, seq_num, seq_start_end
 
@@ -169,8 +154,7 @@ def filter_for_training(roidb):
     num = len(roidb)
     filtered_roidb = [entry for entry in roidb if is_valid(entry)]
     num_after = len(filtered_roidb)
-    logger.info('Filtered {} roidb entries: {} -> {}'.
-                format(num - num_after, num, num_after))
+    logger.info('Filtered {} roidb entries: {} -> {}'.format(num - num_after, num, num_after))
     return filtered_roidb
 
 

@@ -12,6 +12,8 @@ from core.config import cfg
 from roi_data.minibatch import get_minibatch
 import utils.blob as blob_utils
 from random import randint as randi
+from os import path as osp
+import sys
 # from model.rpn.bbox_transform import bbox_transform_inv, clip_boxes
 
 def addPath(path):
@@ -34,7 +36,7 @@ class RoiDataLoader(data.Dataset):
         # Need to change _worker_loop in torch.utils.data.dataloader.py.
         # Squeeze batch dim
         for key in blobs:
-            if key != 'roidb':
+            if key != 'roidb' and key != 'data_flow':
                 blobs[key] = blobs[key].squeeze(axis=0)
 
         blobs['roidb'] = blob_utils.serialize(blobs['roidb'])  # CHECK: maybe we can serialize in collate_fn
@@ -62,9 +64,11 @@ class MinibatchSampler(torch_sampler.Sampler):
             if length<cfg.SEQUENCE_LENGTH:
                 raise ValueError('length of the sequence is shorter than cfg.SEQUENCE_LENGTH.')
             else:
-                id_start = randi(0, length-cfg.SEQUENCE_LENGTH)
+                #TODO change back
+                id_start = randi(0, length-cfg.SEQUENCE_LENGTH)+int(cur_se[0])
+                #id_start = int(cur_se[0])
                 id_end = id_start+cfg.SEQUENCE_LENGTH
-                idx_list.append(list(range(id_start, id_end)))        
+                idx_list.extend(list(range(id_start, id_end)))
         return iter(idx_list)
 
     def __len__(self):
@@ -97,6 +101,7 @@ class BatchSampler(torch_sampler.BatchSampler):
         if not isinstance(drop_last, bool):
             raise ValueError("drop_last should be a boolean value, but got "
                              "drop_last={}".format(drop_last))
+        assert(cfg.SEQUENCE_LENGTH == batch_size)
         self.sampler = sampler
         self.batch_size = batch_size
         self.drop_last = drop_last
@@ -118,7 +123,6 @@ class BatchSampler(torch_sampler.BatchSampler):
             return (len(self.sampler) + self.batch_size - 1) // self.batch_size
 
 
-
 def collate_minibatch(list_of_blobs):
     """Stack samples seperately and return a list of minibatches
     A batch contains NUM_GPUS minibatches and image size in different minibatch may be different.
@@ -128,12 +132,14 @@ def collate_minibatch(list_of_blobs):
     # Because roidb consists of entries of variable length, it can't be batch into a tensor.
     # So we keep roidb in the type of "list of ndarray".
     list_of_roidb = [blobs.pop('roidb') for blobs in list_of_blobs]
+    list_of_flows = [blobs.pop('data_flow', None) for blobs in list_of_blobs]
     for i in range(0, len(list_of_blobs), cfg.TRAIN.IMS_PER_BATCH):
         mini_list = list_of_blobs[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
         # Pad image data
         mini_list = pad_image_data(mini_list)
         minibatch = default_collate(mini_list)
         minibatch['roidb'] = list_of_roidb[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
+        minibatch['data_flow'] = list_of_flows[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
         for key in minibatch:
             Batch[key].append(minibatch[key])
     return Batch

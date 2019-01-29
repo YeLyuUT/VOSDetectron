@@ -928,10 +928,12 @@ __C.CONVGRU.DYNAMIC_MODEL = True
 # ---------------------------------------------------------------------------- #
 __C.MODEL.IDENTITY_TRAINING = False
 __C.MODEL.IDENTITY_REPLACE_CLASS = True
-# Dynamically determine the instance number
+# Dynamically determine the instance number.
 __C.MODEL.TOTAL_INSTANCE_NUM = 0
 __C.MODEL.LOAD_FLOW_FILE = False
-__C.SEQUENCE_LENGTH = 20
+__C.SEQUENCE_LENGTH = 3
+#Number of detection per class.
+__C.TEST.NUM_DET_PER_CLASS = 0 
 
 # ---------------------------------------------------------------------------- #
 # GroupNorm options

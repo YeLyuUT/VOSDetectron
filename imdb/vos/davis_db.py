@@ -552,8 +552,10 @@ class DAVIS_imdb(vos_imdb):
   def get_separate_roidb_from_all_sequences(self, proposal_file = None):
     roidbs = []
     self.debug_timer.tic()
-    for seq_idx in range(self.get_num_sequence()):      
+    for seq_idx in range(self.get_num_sequence()):
       roidbs.append(self.get_roidb_from_seq_idx_sequence(seq_idx, proposal_file = proposal_file))
+      if seq_idx==2:
+        break
     return roidbs
   
   def _create_db_from_label(self):

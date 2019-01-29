@@ -19,6 +19,7 @@ import utils.blob as blob_utils
 import utils.net as net_utils
 import utils.resnet_weights_helper as resnet_utils
 from lib_vos.vos_nn.convgrucell import ConvGRUCell2d
+from vos_model.flow_align.modules.flow_align import FlowAlign
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,12 @@ class Generalized_VOS_RCNN(nn.Module):
                 self.Keypoint_Head.share_res5_module(self.Box_Head.res5)
             self.Keypoint_Outs = keypoint_rcnn_heads.keypoint_outputs(self.Keypoint_Head.dim_out)
 
+        if cfg.CONVGRU.DYNAMIC_MODEL:
+            self.FlowAligns = nn.ModuleList()
+            fpn_scales = [1./2., 1./4., 1./8., 1./16., 1./32.]
+            for i in range(len(fpn_scales)):
+                self.FlowAligns.append(FlowAlign(fpn_scales[i]))
+
         self._init_modules()
 
     def _init_modules(self):
@@ -149,6 +156,7 @@ class Generalized_VOS_RCNN(nn.Module):
         if cfg.TRAIN.FREEZE_CONV_BODY:
             for p in self.Conv_Body.parameters():
                 p.requires_grad = False
+
 
     def _create_hidden_state(self, idx, ref_blob):
         h_c = cfg.CONVGRU.HIDDEN_STATE_CHANNELS[idx]
@@ -176,14 +184,14 @@ class Generalized_VOS_RCNN(nn.Module):
         for i in range(len(self.hidden_states)):
             self.hidden_states[i] = None
 
-    def forward(self, data, im_info, roidb=None, **rpn_kwargs):
+    def forward(self, data, im_info, roidb=None, data_flow = None, **rpn_kwargs):
         if cfg.PYTORCH_VERSION_LESS_THAN_040:
             return self._forward(data, im_info, roidb, **rpn_kwargs)
         else:
             with torch.set_grad_enabled(self.training):
                 return self._forward(data, im_info, roidb, **rpn_kwargs)
 
-    def _forward(self, data, im_info, roidb=None, **rpn_kwargs):
+    def _forward(self, data, im_info, roidb=None, data_flow = None, **rpn_kwargs):
         im_data = data
         if self.training:
             roidb = list(map(lambda x: blob_utils.deserialize(x)[0], roidb))
@@ -196,14 +204,30 @@ class Generalized_VOS_RCNN(nn.Module):
     
         assert(len(blob_conv)==5)
         
-        self.create_hidden_states(blob_conv)
+        if not cfg.CONVGRU.DYNAMIC_MODEL:
+            #Every time, the image size may be different, so we create new hidden states.
+            self.create_hidden_states(blob_conv)
+        else:
+            #Caller needs to manually clean the hidden states.
+            self.check_exist_hidden_states(blob_conv)
+        if cfg.CONVGRU.DYNAMIC_MODEL is True:
+          #if dynamic model, hidden_states need to be updated.
+          warped_hidden_states = [None]*5
+          for i in range(5):
+            if not data_flow is None:
+                warped_hidden_states[i] = self.FlowAligns[i](self.hidden_states[i], data_flow)
+            else:
+                warped_hidden_states[i] = self.hidden_states[i]
+            #TODO add delta flow here.
+            if True: #skip delta flow
+                self.hidden_states[i] = warped_hidden_states[i]
+            else:
+                pass
+
         for i in range(5):
             #TODO add flow align here.
             blob_conv[i] = self.ConvGRUs[i]( (blob_conv[i], self.hidden_states[i]) )
-        if cfg.CONVGRU.DYNAMIC_MODEL is True:
-          #if dynamic model, hidden_states need to be updated.
-          #TODO
-          pass
+
 
         rpn_ret = self.RPN(blob_conv, im_info, roidb)
 

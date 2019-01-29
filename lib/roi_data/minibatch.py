@@ -4,7 +4,7 @@ import cv2
 from core.config import cfg
 import utils.blob as blob_utils
 import roi_data.rpn
-
+from vos_utils.flow_util import readFlowFile as flo_reader
 
 def get_minibatch_blob_names(is_training=True):
     """Return blob names in the order in which they are read by the data loader.
@@ -33,6 +33,11 @@ def get_minibatch(roidb):
     # Get the input image blob
     im_blob, im_scales = _get_image_blob(roidb)
     blobs['data'] = im_blob
+
+    if cfg.MODEL.LOAD_FLOW_FILE:
+        flo_blob = _get_flow_list(roidb)
+        blobs['data_flow'] = flo_blob
+
     if cfg.RPN.RPN_ON:
         # RPN-only or end-to-end Faster/Mask R-CNN
         valid = roi_data.rpn.add_rpn_blobs(blobs, im_scales, roidb)
@@ -43,6 +48,32 @@ def get_minibatch(roidb):
         valid = roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb)
     return blobs, valid
 
+def _flo_to_blob(flo):
+    """
+    """
+    blob = np.zeros((1, flo.shape[0], flo.shape[1], 2), dtype=np.float32)
+    blob[0, 0:flo.shape[0], 0:flo.shape[1], :] = flo
+    channel_swap = (0, 3, 1, 2)
+    blob = blob.transpose(channel_swap)
+    return blob
+
+def _get_flow_list(roidb):
+    """Builds an input blob from the images in the roidb at the specified
+    scales.
+    """
+    num_images = len(roidb)
+    flo_list = []
+    for i in range(num_images):
+        if roidb[i]['flow'] is not None:
+            flo = flo_reader.read(roidb[i]['flow'])
+            assert flo is not None, \
+                'Failed to read flow \'{}\''.format(roidb[i]['flow'])
+            flo =  _flo_to_blob(flo)
+            flo_list.append(flo)
+        else:
+            flo_list.append(None)
+
+    return flo_list
 
 def _get_image_blob(roidb):
     """Builds an input blob from the images in the roidb at the specified

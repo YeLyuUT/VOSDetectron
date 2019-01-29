@@ -787,11 +787,17 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
             for j in range(1, num_classes):
                 keep = np.where(cls_boxes[j][:, -1] >= image_thresh)[0]
                 cls_boxes[j] = cls_boxes[j][keep, :]
+                
+    if cfg.TEST.NUM_DET_PER_CLASS>0:
+        for j in range(1, num_classes):
+            keep = np.argsort(-cls_boxes[j][:, -1])[:cfg.TEST.NUM_DET_PER_CLASS]
+            cls_boxes[j] = cls_boxes[j][keep, :]
 
     im_results = np.vstack([cls_boxes[j] for j in range(1, num_classes)])
     boxes = im_results[:, :-1]
     scores = im_results[:, -1]
     return scores, boxes, cls_boxes
+
 
 
 def segm_results(cls_boxes, masks, ref_boxes, im_h, im_w):

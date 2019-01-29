@@ -13,15 +13,15 @@ SOLVER:
   LR_POLICY: steps_with_decay
   BASE_LR: 0.002
   GAMMA: 0.1
-  MAX_ITER: 90000
-  STEPS: [0, 60000, 80000]
+  MAX_ITER: 50000
+  STEPS: [0, 35000, 45000]
 FPN:
   FPN_ON: True
   MULTILEVEL_ROIS: True
   MULTILEVEL_RPN: True
   USE_GN: True  # Note: use GN on the FPN-specific layers
-  RPN_ANCHOR_START_SIZE: 32 # TODO can change to bigger value(such as 48 or 64). Default: 32 64 128 256 512
-  ROI_CANONICAL_SCALE: 224 # TODO can change to bigger value
+  RPN_ANCHOR_START_SIZE: 64 # TODO can change to bigger value(such as 48 or 64). Default: 32 64 128 256 512
+  ROI_CANONICAL_SCALE: 448 # TODO can change to bigger value. Default: 224
 RESNETS:
   IMAGENET_PRETRAINED_WEIGHTS: '../../data/pretrained_model/R-101-GN.pkl'
   STRIDE_1X1: False  # default True for MSRA; False for C2 or Torch models

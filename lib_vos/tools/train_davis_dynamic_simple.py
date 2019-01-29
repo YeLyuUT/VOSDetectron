@@ -33,7 +33,8 @@ import utils.net as net_utils
 import utils.misc as misc_utils
 from core.config import cfg, cfg_from_file, cfg_from_list, assert_and_infer_cfg
 from vos_datasets.sequence_roidb import sequenced_roidb_for_training
-from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
+from vos_roi_data.vos_loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
+#from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
 #from modeling.model_builder import Generalized_RCNN
 from vos_modeling import vos_model_builder
 from utils.detectron_weight_helper import load_detectron_weight
@@ -162,7 +163,7 @@ def main():
         raise ValueError("Need Cuda device to run !")
 
     if args.dataset == "davis2017":
-        cfg.TRAIN.DATASETS = ('davis_2017_train',)
+        cfg.TRAIN.DATASETS = ('davis_train',)
         #For davis, coco category is used.
         cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
     else:
@@ -247,21 +248,21 @@ def main():
     timers['roidb'].tic()
     merged_roidb, seq_num, seq_start_end = sequenced_roidb_for_training(
         cfg.TRAIN.DATASETS, cfg.TRAIN.PROPOSAL_FILES)
+
     timers['roidb'].toc()
-    roidb_size = len(roidbs)
+    roidb_size = len(merged_roidb)
     logger.info('{:d} roidbs sequences.'.format(roidb_size))
     logger.info('Takes %.2f sec(s) to construct roidbs', timers['roidb'].average_time)
 
     # Effective training sample size for one epoch, number of sequences.
     train_size = roidb_size // args.batch_size * args.batch_size
-    
     batchSampler = BatchSampler(
-        sampler=MinibatchSampler(ratio_list, ratio_index),
-        batch_size=args.batch_size,
+        sampler=MinibatchSampler(seq_num, seq_start_end),
+        batch_size=cfg.SEQUENCE_LENGTH,
         drop_last=True
     )
     dataset = RoiDataLoader(
-        roidb,
+        merged_roidb,
         cfg.MODEL.NUM_CLASSES,
         training=True)
     dataloader = torch.utils.data.DataLoader(
@@ -330,8 +331,7 @@ def main():
         load_name = args.load_ckpt
         logging.info("loading checkpoint %s", load_name)
         checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
-        #TODO: load_ckpt_no_mapping(maskRCNN, checkpoint['model'])
-        net_utils.load_ckpt(maskRCNN, checkpoint['model'])
+        net_utils.load_ckpt_no_mapping(maskRCNN, checkpoint['model'])
         if args.resume:
             args.start_step = checkpoint['step'] + 1
             if 'train_size' in checkpoint:  # For backward compatibility
@@ -430,32 +430,50 @@ def main():
 
             training_stats.IterTic()
             optimizer.zero_grad()
-            for inner_iter in range(args.iter_size):
-                try:
-                    input_data = next(dataiterator)
-                except StopIteration:
-                    dataiterator = iter(dataloader)
-                    input_data = next(dataiterator)
-
+            try:
+                input_data_sequence = next(dataiterator)
+            except StopIteration:
+                dataiterator = iter(dataloader)
+                input_data_sequence = next(dataiterator)
+            
+            maskRCNN.module.clean_hidden_states()
+            for inner_iter in range(cfg.SEQUENCE_LENGTH):
+                #get input_data
+                input_data = {}
+                for key in input_data_sequence.keys():
+                    input_data[key] = input_data_sequence[key][inner_iter:inner_iter+1]                  
                 for key in input_data:
-                    if key != 'roidb': # roidb is a list of ndarrays with inconsistent length
+                    if key != 'roidb' and key != 'data_flow': # roidb is a list of ndarrays with inconsistent length
                         input_data[key] = list(map(Variable, input_data[key]))
-
+                    if key == 'data_flow':
+                        if input_data[key][0][0][0] is not None: # flow is not None.
+                            #input_data[key] = list(map(Variable, input_data[key]))
+                            # TODO shape not correct.
+                            input_data[key] = [Variable(torch.tensor(np.expand_dims(np.squeeze(np.array(input_data[key],dtype=np.float32)),0), device=input_data['data'][0].device))]
+                            print(input_data['data_flow'][0].shape)
+                        else:
+                            input_data[key] = [None]
+                print(input_data['data'][0].shape)
+                img = np.transpose(np.squeeze(input_data['data'][0].data.cpu().numpy()), [1,2,0])
+                cv2.imshow('img', img)       
+                cv2.waitKey(1000)
+                continue
                 net_outputs = maskRCNN(**input_data)
                 training_stats.UpdateIterStats(net_outputs, inner_iter)
                 loss = net_outputs['total_loss']
                 loss.backward()
-            optimizer.step()
+
+            #optimizer.step()
             training_stats.IterToc()
 
             training_stats.LogIterStats(step, lr)
-
+            
             if (step+1) % CHECKPOINT_PERIOD == 0:
                 save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
-
+            
         # ---- Training ends ----
         # Save last checkpoint
-        save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
+        #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
 
     except (RuntimeError, KeyboardInterrupt):
         del dataiterator

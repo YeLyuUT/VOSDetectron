@@ -116,6 +116,40 @@ def save_img_fig(im, im_name, output_dir,ext,dpi):
     fig.savefig(os.path.join(output_dir, '{}'.format(output_name)), dpi=dpi)
     plt.close('all')
 
+def get_mask_result_binary(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
+        box_alpha=0.0, dataset=None, ext='png'):
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    if isinstance(boxes, list):
+        boxes, segms, keypoints, classes = convert_from_cls_format(
+            boxes, segms, keypoints)
+    if segms is not None:
+        masks = mask_util.decode(segms)
+
+    outImg = np.zeros(shape=(im.shape[0],im.shape[1]), dtype=np.uint8)
+    # TODO: maybe we can have better mask merging strategy.
+    # Display in largest to smallest order to reduce occlusion
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    sorted_inds = np.argsort(-areas)
+    for i in sorted_inds:
+        bbox = boxes[i, :4]
+        score = boxes[i, -1]
+        if score < thresh:
+            continue
+
+        print(dataset.classes[classes[i]], score)
+        # show mask
+        if segms is not None and len(segms) > i:
+            color = classes[i]
+            outImg[masks[:, :, i]>0] = color
+    return outImg
+
+def get_mask_result_color():
+    pass
+
+def binary_result_to_color_result():
+    pass
+
 def vis_one_image(
         im, im_name, output_dir, boxes, segms=None, keypoints=None, thresh=0.9,
         kp_thresh=2, dpi=200, box_alpha=0.0, dataset=None, show_class=False,

@@ -93,7 +93,7 @@ def add_rpn_blobs(blobs, im_scales, roidb):
                 blobs[k].append(v)
 
     for k, v in blobs.items():
-        if isinstance(v, list) and len(v) > 0:
+        if isinstance(v, list) and len(v) > 0 and k !='data_flow':
             blobs[k] = np.concatenate(v)
     
     valid_keys = [
@@ -143,6 +143,7 @@ def _get_rpn_blobs(im_height, im_width, foas, all_anchors, gt_boxes):
     # label=1 is positive, 0 is negative, -1 is don't care (ignore)
     labels = np.empty((num_inside, ), dtype=np.int32)
     labels.fill(-1)
+    anchor_to_gt_max = None
     if len(gt_boxes) > 0:
         # Compute overlaps between the anchors and the gt boxes overlaps
         anchor_by_gt_overlap = box_utils.bbox_overlaps(anchors, gt_boxes)
@@ -185,16 +186,20 @@ def _get_rpn_blobs(im_height, im_width, foas, all_anchors, gt_boxes):
     # (samples with replacement, but since the set of bg inds is large most
     # samples will not have repeats)
     num_bg = cfg.TRAIN.RPN_BATCH_SIZE_PER_IM - np.sum(labels == 1)
-    bg_inds = np.where(anchor_to_gt_max < cfg.TRAIN.RPN_NEGATIVE_OVERLAP)[0]
+    if not anchor_to_gt_max is None:
+        bg_inds = np.where(anchor_to_gt_max < cfg.TRAIN.RPN_NEGATIVE_OVERLAP)[0]
+    else:
+        bg_inds = np.arange(len(labels))
     if len(bg_inds) > num_bg:
         enable_inds = bg_inds[npr.randint(len(bg_inds), size=num_bg)]
         labels[enable_inds] = 0
     bg_inds = np.where(labels == 0)[0]
 
     bbox_targets = np.zeros((num_inside, 4), dtype=np.float32)
-    bbox_targets[fg_inds, :] = data_utils.compute_targets(
-        anchors[fg_inds, :], gt_boxes[anchor_to_gt_argmax[fg_inds], :]
-    )
+    if len(fg_inds)>0:
+        bbox_targets[fg_inds, :] = data_utils.compute_targets(
+            anchors[fg_inds, :], gt_boxes[anchor_to_gt_argmax[fg_inds], :]
+        )
 
     # Bbox regression loss has the form:
     #   loss(x) = weight_outside * L(weight_inside * x)
