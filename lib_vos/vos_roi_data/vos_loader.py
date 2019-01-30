@@ -61,13 +61,11 @@ class MinibatchSampler(torch_sampler.Sampler):
             cur_se = shuffled_seq_start_end[idx,:]
             assert(cur_se[1] > cur_se[0])
             length = cur_se[1] - cur_se[0]
-            if length<cfg.SEQUENCE_LENGTH:
-                raise ValueError('length of the sequence is shorter than cfg.SEQUENCE_LENGTH.')
+            if length<cfg.MODEL.SEQUENCE_LENGTH:
+                raise ValueError('length of the sequence is shorter than cfg.MODEL.SEQUENCE_LENGTH.')
             else:
-                #TODO change back
-                id_start = randi(0, length-cfg.SEQUENCE_LENGTH)+int(cur_se[0])
-                #id_start = int(cur_se[0])
-                id_end = id_start+cfg.SEQUENCE_LENGTH
+                id_start = randi(0, length-cfg.MODEL.SEQUENCE_LENGTH)+int(cur_se[0])
+                id_end = id_start+cfg.MODEL.SEQUENCE_LENGTH
                 idx_list.extend(list(range(id_start, id_end)))
         return iter(idx_list)
 
@@ -101,7 +99,7 @@ class BatchSampler(torch_sampler.BatchSampler):
         if not isinstance(drop_last, bool):
             raise ValueError("drop_last should be a boolean value, but got "
                              "drop_last={}".format(drop_last))
-        assert(cfg.SEQUENCE_LENGTH == batch_size)
+        assert(cfg.MODEL.SEQUENCE_LENGTH == batch_size)
         self.sampler = sampler
         self.batch_size = batch_size
         self.drop_last = drop_last

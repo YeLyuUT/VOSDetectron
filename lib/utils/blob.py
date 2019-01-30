@@ -73,8 +73,8 @@ def im_list_to_blob(ims):
     """
     if not isinstance(ims, list):
         ims = [ims]
+        
     max_shape = get_max_shape([im.shape[:2] for im in ims])
-
     num_images = len(ims)
     blob = np.zeros(
         (num_images, max_shape[0], max_shape[1], 3), dtype=np.float32)

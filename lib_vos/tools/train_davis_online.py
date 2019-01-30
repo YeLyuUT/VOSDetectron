@@ -32,9 +32,8 @@ import nn as mynn
 import utils.net as net_utils
 import utils.misc as misc_utils
 from core.config import cfg, cfg_from_file, cfg_from_list, assert_and_infer_cfg
-from vos_datasets.sequence_roidb import sequenced_roidb_for_training
-from vos_roi_data.vos_loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
-#from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
+from datasets.roidb import combined_roidb_for_training
+from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
 #from modeling.model_builder import Generalized_RCNN
 from vos_modeling import vos_model_builder
 from utils.detectron_weight_helper import load_detectron_weight
@@ -162,26 +161,33 @@ def main():
     else:
         raise ValueError("Need Cuda device to run !")
 
-    if args.dataset == "davis2017":
+    if args.dataset == "coco2017":
+        cfg.TRAIN.DATASETS = ('coco_2017_train',)
+        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
+    elif args.dataset == "keypoints_coco2017":
+        cfg.TRAIN.DATASETS = ('keypoints_coco_2017_train',)
+        cfg.MODEL.NUM_CLASSES = 2
+    elif args.dataset == "davis2017":
         cfg.TRAIN.DATASETS = ('davis_train',)
         #For davis, coco category is used.
-        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
+        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background                
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
 
-    
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
-        cfg_from_list(args.set_cfgs)
-
+        cfg_from_list(args.set_cfgs)        
+        
     if cfg.MODEL.IDENTITY_TRAINING and cfg.MODEL.IDENTITY_REPLACE_CLASS:
         cfg.MODEL.NUM_CLASSES = 145
         cfg.MODEL.IDENTITY_TRAINING = False
         cfg.MODEL.ADD_UNKNOWN_CLASS = False
 
     #Add unknow class type if necessary.
+    if cfg.MODEL.IDENTITY_TRAINING:
+          cfg.MODEL.TOTAL_INSTANCE_NUM = 145
     if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
-        cfg.MODEL.NUM_CLASSES +=1
+        cfg.MODEL.NUM_CLASSES +=1   
 
     ### Adaptively adjust some configs ###
     original_batch_size = cfg.NUM_GPUS * cfg.TRAIN.IMS_PER_BATCH
@@ -246,23 +252,23 @@ def main():
 
     ### Dataset ###
     timers['roidb'].tic()
-    merged_roidb, seq_num, seq_start_end = sequenced_roidb_for_training(
+    roidb, ratio_list, ratio_index = combined_roidb_for_training(
         cfg.TRAIN.DATASETS, cfg.TRAIN.PROPOSAL_FILES)
-
     timers['roidb'].toc()
-    roidb_size = len(merged_roidb)
-    logger.info('{:d} roidbs sequences.'.format(roidb_size))
-    logger.info('Takes %.2f sec(s) to construct roidbs', timers['roidb'].average_time)
+    roidb_size = len(roidb)
+    logger.info('{:d} roidb entries'.format(roidb_size))
+    logger.info('Takes %.2f sec(s) to construct roidb', timers['roidb'].average_time)
 
-    # Effective training sample size for one epoch, number of sequences.
+    # Effective training sample size for one epoch
     train_size = roidb_size // args.batch_size * args.batch_size
+
     batchSampler = BatchSampler(
-        sampler=MinibatchSampler(seq_num, seq_start_end),
-        batch_size=cfg.MODEL.SEQUENCE_LENGTH,
+        sampler=MinibatchSampler(ratio_list, ratio_index),
+        batch_size=args.batch_size,
         drop_last=True
     )
     dataset = RoiDataLoader(
-        merged_roidb,
+        roidb,
         cfg.MODEL.NUM_CLASSES,
         training=True)
     dataloader = torch.utils.data.DataLoader(
@@ -430,27 +436,17 @@ def main():
 
             training_stats.IterTic()
             optimizer.zero_grad()
-            try:
-                input_data_sequence = next(dataiterator)
-            except StopIteration:
-                dataiterator = iter(dataloader)
-                input_data_sequence = next(dataiterator)
-            
-            maskRCNN.module.clean_hidden_states()
-            for inner_iter in range(cfg.MODEL.SEQUENCE_LENGTH):
-                #get input_data
-                input_data = {}
-                for key in input_data_sequence.keys():
-                    input_data[key] = input_data_sequence[key][inner_iter:inner_iter+1]                  
+            for inner_iter in range(args.iter_size):
+                try:
+                    input_data = next(dataiterator)
+                except StopIteration:
+                    dataiterator = iter(dataloader)
+                    input_data = next(dataiterator)
+
                 for key in input_data:
-                    if key != 'roidb' and key != 'data_flow': # roidb is a list of ndarrays with inconsistent length
+                    if key != 'roidb': # roidb is a list of ndarrays with inconsistent length
                         input_data[key] = list(map(Variable, input_data[key]))
-                    if key == 'data_flow':
-                        if inner_iter != 0 and input_data[key][0][0][0] is not None: # flow is not None.
-                            input_data[key] = [Variable(torch.tensor(np.expand_dims(np.squeeze(np.array(input_data[key],dtype=np.float32)),0), device=input_data['data'][0].device))]
-                            assert input_data['data'][0].shape[-2:]==input_data[key][0].shape[-2:], "Spatial shape of image and flow are not equal."
-                        else:
-                            input_data[key] = [None]
+
                 net_outputs = maskRCNN(**input_data)
                 training_stats.UpdateIterStats(net_outputs, inner_iter)
                 loss = net_outputs['total_loss']
@@ -459,10 +455,10 @@ def main():
             training_stats.IterToc()
 
             training_stats.LogIterStats(step, lr)
-            
+
             if (step+1) % CHECKPOINT_PERIOD == 0:
                 save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
-            
+
         # ---- Training ends ----
         # Save last checkpoint
         save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)

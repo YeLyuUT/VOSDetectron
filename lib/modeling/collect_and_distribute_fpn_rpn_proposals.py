@@ -71,9 +71,14 @@ class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
             else:
                 json_dataset.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
             # Compute training labels for the RPN proposals; also handles
-            # distributing the proposals over FPN levels
+            # distributing the proposals over FPN levels            
             output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names()
             blobs = {k: [] for k in output_blob_names}
+            if cfg.CONVGRU.DYNAMIC_MODEL:
+                assert len(roidb)==1, 'The batch size should be one, so the running graph can be the same.(has gt or no gt should be consistant).'                
+                # No gt.
+                if not len(np.where(roidb[0]['gt_classes'] > 0)[0])>0:
+                    return blobs
             roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb)
         else:
             # For inference we have a special code path that avoids some data

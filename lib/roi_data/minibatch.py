@@ -31,13 +31,12 @@ def get_minibatch(roidb):
     blobs = {k: [] for k in get_minibatch_blob_names()}
 
     # Get the input image blob
-    im_blob, im_scales = _get_image_blob(roidb)
-    blobs['data'] = im_blob
-
     if cfg.MODEL.LOAD_FLOW_FILE:
-        flo_blob = _get_flow_list(roidb)
-        blobs['data_flow'] = flo_blob
-
+        im_blob, im_scales, flo_blob = _get_image_blob(roidb)
+    else:
+        im_blob, im_scales = _get_image_blob(roidb)
+    blobs['data'] = im_blob
+    blobs['data_flow'] = flo_blob
     if cfg.RPN.RPN_ON:
         # RPN-only or end-to-end Faster/Mask R-CNN
         valid = roi_data.rpn.add_rpn_blobs(blobs, im_scales, roidb)
@@ -48,32 +47,19 @@ def get_minibatch(roidb):
         valid = roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb)
     return blobs, valid
 
-def _flo_to_blob(flo):
+def _flo_to_blob(flo, target_size):
     """
     """
-    blob = np.zeros((1, flo.shape[0], flo.shape[1], 2), dtype=np.float32)
+    flo, flo_scale = blob_utils.prep_im_for_blob(flo, (0, 0), [target_size], cfg.TRAIN.MAX_SIZE)
+    flo = flo[0]*flo_scale # scale the value.
+    flo_scale = flo_scale[0]
+
+    max_shape = blob_utils.get_max_shape([flo.shape[:2]])
+    blob = np.zeros((1, max_shape[0], max_shape[1], 2), dtype=np.float32)
     blob[0, 0:flo.shape[0], 0:flo.shape[1], :] = flo
     channel_swap = (0, 3, 1, 2)
     blob = blob.transpose(channel_swap)
     return blob
-
-def _get_flow_list(roidb):
-    """Builds an input blob from the images in the roidb at the specified
-    scales.
-    """
-    num_images = len(roidb)
-    flo_list = []
-    for i in range(num_images):
-        if roidb[i]['flow'] is not None:
-            flo = flo_reader.read(roidb[i]['flow'])
-            assert flo is not None, \
-                'Failed to read flow \'{}\''.format(roidb[i]['flow'])
-            flo =  _flo_to_blob(flo)
-            flo_list.append(flo)
-        else:
-            flo_list.append(None)
-
-    return flo_list
 
 def _get_image_blob(roidb):
     """Builds an input blob from the images in the roidb at the specified
@@ -85,6 +71,7 @@ def _get_image_blob(roidb):
         0, high=len(cfg.TRAIN.SCALES), size=num_images)
     processed_ims = []
     im_scales = []
+    flo_list = []
     for i in range(num_images):
         im = cv2.imread(roidb[i]['image'])
         assert im is not None, \
@@ -104,7 +91,21 @@ def _get_image_blob(roidb):
         im_scales.append(im_scale[0])
         processed_ims.append(im[0])
 
+        if cfg.MODEL.LOAD_FLOW_FILE:
+            # prepare flow
+            if roidb[i]['flow'] is not None:
+                flo = flo_reader.read(roidb[i]['flow'])
+                assert flo is not None, \
+                    'Failed to read flow \'{}\''.format(roidb[i]['flow'])
+                flo =  _flo_to_blob(flo, target_size)
+                flo_list.append(flo)
+            else:
+                flo_list.append(None)
+
     # Create a blob to hold the input images [n, c, h, w]
     blob = blob_utils.im_list_to_blob(processed_ims)
 
-    return blob, im_scales
+    if cfg.MODEL.LOAD_FLOW_FILE:
+        return blob, im_scales, flo_list
+    else:
+        return blob, im_scales

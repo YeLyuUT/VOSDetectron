@@ -7,6 +7,7 @@ from torch.autograd import Variable
 from core.config import cfg
 import nn as mynn
 import utils.net as net_utils
+import numpy as np
 
 
 class fast_rcnn_outputs(nn.Module):
