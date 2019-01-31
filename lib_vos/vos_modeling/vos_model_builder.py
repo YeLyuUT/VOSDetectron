@@ -235,7 +235,7 @@ class Generalized_VOS_RCNN(nn.Module):
 
         # Handle blob with no GT boxes.
         HEAD_TRAIN = True
-        if cfg.CONVGRU.DYNAMIC_MODEL:
+        if cfg.CONVGRU.DYNAMIC_MODEL and not roidb is None:
             assert(len(roidb)==1)
             if not len(rpn_ret['bbox_targets'])>0:
                 HEAD_TRAIN = False

@@ -24,7 +24,7 @@ def get_minibatch_blob_names(is_training=True):
     return blob_names
 
 
-def get_minibatch(roidb):
+def get_minibatch(roidb, target_scale = None):
     """Given a roidb, construct a minibatch sampled from it."""
     # We collect blobs from each image onto a list and then concat them into a
     # single tensor, hence we initialize each blob to an empty list
@@ -32,11 +32,12 @@ def get_minibatch(roidb):
 
     # Get the input image blob
     if cfg.MODEL.LOAD_FLOW_FILE:
-        im_blob, im_scales, flo_blob = _get_image_blob(roidb)
+        im_blob, im_scales, flo_blob = _get_image_blob(roidb, target_scale)
+        blobs['data_flow'] = flo_blob
     else:
-        im_blob, im_scales = _get_image_blob(roidb)
+        im_blob, im_scales = _get_image_blob(roidb, target_scale)
     blobs['data'] = im_blob
-    blobs['data_flow'] = flo_blob
+    
     if cfg.RPN.RPN_ON:
         # RPN-only or end-to-end Faster/Mask R-CNN
         valid = roi_data.rpn.add_rpn_blobs(blobs, im_scales, roidb)
@@ -61,14 +62,16 @@ def _flo_to_blob(flo, target_size):
     blob = blob.transpose(channel_swap)
     return blob
 
-def _get_image_blob(roidb):
+def _get_image_blob(roidb, target_scale = None):
     """Builds an input blob from the images in the roidb at the specified
     scales.
     """
     num_images = len(roidb)
     # Sample random scales to use for each image in this batch
-    scale_inds = np.random.randint(
-        0, high=len(cfg.TRAIN.SCALES), size=num_images)
+    if target_scale is None:
+        scale_inds = np.random.randint(
+            0, high=len(cfg.TRAIN.SCALES), size=num_images)
+
     processed_ims = []
     im_scales = []
     flo_list = []
@@ -85,7 +88,10 @@ def _get_image_blob(roidb):
         # im = im[:, :, ::-1]
         if roidb[i]['flipped']:
             im = im[:, ::-1, :]
-        target_size = cfg.TRAIN.SCALES[scale_inds[i]]
+        if target_scale is None:
+            target_size = cfg.TRAIN.SCALES[scale_inds[i]]
+        else:
+            target_size = target_scale
         im, im_scale = blob_utils.prep_im_for_blob(
             im, cfg.PIXEL_MEANS, [target_size], cfg.TRAIN.MAX_SIZE)
         im_scales.append(im_scale[0])

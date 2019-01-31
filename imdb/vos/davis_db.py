@@ -18,14 +18,17 @@ def addPath(path):
 
 davis_api_home = osp.join(cfg.DAVIS.HOME,'python','lib')
 dataset_lib = osp.abspath(osp.join(osp.dirname(__file__),'../../lib/'))
+vos_util_path = osp.abspath(osp.join(osp.dirname(__file__),'../../lib_vos/vos_utils'))
 addPath(davis_api_home)
 addPath(dataset_lib)
+addPath(vos_util_path)
 
 from davis import cfg as cfg_davis
 from davis import io,DAVISLoader,phase  
 
 from utils.timer import Timer
 import utils.boxes as box_utils
+from flow_util.readFlowFile import read as flo_read
 
 #from utils.segms import binary_mask_to_rle
 import datasets.dummy_datasets as datasets
@@ -42,7 +45,7 @@ splits = ['train','val','trainval','test-dev']
 
 
 class DAVIS_imdb(vos_imdb):
-  def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False):
+  def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False, use_local_id = False):
     '''
     Args:
     cls_mapper(dict type): VOS dataset only provides instance id label or class label that
@@ -77,6 +80,7 @@ class DAVIS_imdb(vos_imdb):
     print('year:',cfg_davis.YEAR)
     print('phase:',cfg_davis.PHASE.value)
     self.db = DAVISLoader(year=cfg_davis.YEAR,phase=cfg_davis.PHASE)
+    self.use_local_id = use_local_id
     self.seq_idx = 0
     self.cls_mapper = None
     if cls_mapper is not None:
@@ -140,6 +144,17 @@ class DAVIS_imdb(vos_imdb):
   def get_image_cv2(self,idx):
     seq = self.get_current_seq()
     return cv2.imread(seq.files[idx])
+
+  def get_flow(self,idx):
+    if idx==0:
+      return None
+    elif idx>0:
+      flow_file_name = cfg.DAVIS.FLOW_FILENAME_TEMPLATE%(idx-1)
+      flow_file_path = osp.join(cfg.DAVIS.FLOW_DIR, self.get_current_seq_name(), flow_file_name)
+      assert(osp.exists(flow_file_path))
+      return flo_read(flow_file_path)
+    else:
+      raise ValueError("idx should be integer >= 0")
 
   def get_gt_with_color(self, idx):
     return cfg_davis.palette[self.db.annotations[self.seq_idx][idx]][...,[2,1,0]]
@@ -373,7 +388,10 @@ class DAVIS_imdb(vos_imdb):
           #set category id by cls_mapper.
           obj['category_id'] = self.cls_mapper[val]
         else:
-          obj['category_id'] = self.global_instance_id_start_of_seq[seq_idx]+val-1
+          if self.use_local_id:
+            obj['category_id'] = self.global_instance_id_start_of_seq[seq_idx]+val-1
+          else:
+            obj['category_id'] = val
         obj['instance_id'] = val
         assert(self.global_instance_id_start_of_seq[seq_idx]!=0)
         # val-1 to remove background.
@@ -554,6 +572,7 @@ class DAVIS_imdb(vos_imdb):
     self.debug_timer.tic()
     for seq_idx in range(self.get_num_sequence()):
       roidbs.append(self.get_roidb_from_seq_idx_sequence(seq_idx, proposal_file = proposal_file))      
+      break
     return roidbs
   
   def _create_db_from_label(self):

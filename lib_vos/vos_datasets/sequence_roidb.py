@@ -29,7 +29,48 @@ logger = logging.getLogger(__name__)
 
 from vos.davis_db import DAVIS_imdb
 
-def sequenced_roidb_for_training(dataset_names, proposal_files):
+def sequenced_roidb_for_training_from_db(dbs, proposal_files):    
+    def get_roidb(db, proposal_file):
+        roidb = None
+        dataset_name = db._dbname.lower()
+        if 'davis' in dataset_name:
+          ds = db
+          roidbs = ds.get_separate_roidb_from_all_sequences(proposal_file=proposal_file)
+        else:
+          raise ValueError('Invalid dataset type.')
+          
+        if cfg.TRAIN.USE_FLIPPED:
+            raise ValueError('cfg.TRAIN.USE_FLIPPED is True, but not implemented yet.')
+            #logger.info('Appending horizontally-flipped training examples...')
+            #extend_with_flipped_entries(roidb, ds)
+        logger.info('Loaded dataset: {:s}'.format(ds.name))
+        return roidbs
+
+    if len(proposal_files) == 0:
+        proposal_files = (None, ) * len(dbs)
+    assert len(dbs) == len(proposal_files)
+    #roidbs is list of roidbs.
+    roidbss = [get_roidb(*args) for args in zip(dbs, proposal_files)]    
+    roidbs = roidbss[0]
+    for r in roidbss[1:]:
+        roidbs.extend(r)
+    
+    #remove filter.
+    #for i in range(len(roidbs)):
+     # roidbs[i] = filter_for_training(roidbs[i])
+
+    logger.info('Computing bounding-box regression targets...')
+    for roidb in roidbs:
+      add_bbox_regression_targets(roidb)
+    logger.info('done')
+
+    _compute_and_log_stats(roidbs)
+    
+    merged_roidb, seq_num, seq_start_end = _merge_roidbs(roidbs)
+        
+    return merged_roidb, seq_num, seq_start_end
+
+def sequenced_roidb_for_training(dataset_names, proposal_files, use_local_id = False):
     """Load and concatenate roidbs for one or more datasets, along with optional
     object proposals. The roidb entries are then prepared for use in training,
     which involves caching certain types of metadata for each roidb entry.
@@ -40,7 +81,7 @@ def sequenced_roidb_for_training(dataset_names, proposal_files):
         if 'davis' in dataset_name:
           name, split = dataset_name.split('_')
           #year = '2017', split = 'train'
-          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE)
+          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE, use_local_id = use_local_id)
           #roidb = ds.get_roidb_from_all_sequences()
           roidbs = ds.get_separate_roidb_from_all_sequences(proposal_file=proposal_file)
         else:
@@ -83,7 +124,7 @@ def sequenced_roidb_for_training(dataset_names, proposal_files):
 
 def _merge_roidbs(roidbs):
     seq_num = len(roidbs)
-    seq_start_end = np.zeros([seq_num,2])
+    seq_start_end = np.zeros([seq_num,2], np.int32)
     seq_start = 0
     seq_end = 0
     merged_roidb = []

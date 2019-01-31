@@ -24,23 +24,35 @@ def addPath(path):
 home = osp.abspath('../..')
 lib_vos_path = osp.abspath('../../lib_vos')
 lib_path = osp.abspath('../../lib')
+imdb_path = osp.abspath(osp.join(osp.dirname(__file__),'../../imdb/'))
 addPath(lib_vos_path)
 addPath(lib_path)
 addPath(home)
+addPath(imdb_path)
 #import _init_paths  # pylint: disable=unused-import
 import nn as mynn
 import utils.net as net_utils
 import utils.misc as misc_utils
 from core.config import cfg, cfg_from_file, cfg_from_list, assert_and_infer_cfg
-from datasets.roidb import combined_roidb_for_training
-from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
+from roi_data.minibatch import get_minibatch
+from vos_datasets.sequence_roidb import sequenced_roidb_for_training
+from vos_roi_data.vos_loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
+#from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
 #from modeling.model_builder import Generalized_RCNN
 from vos_modeling import vos_model_builder
+from vos_datasets.sequence_roidb import sequenced_roidb_for_training_from_db
+import utils.blob as blob_utils
 from utils.detectron_weight_helper import load_detectron_weight
 from utils.logging import setup_logging
 from utils.timer import Timer
 from utils.training_stats import TrainingStats
-
+from vos_test import im_detect_all
+import distutils.util
+import utils.misc as misc_utils
+import utils.net as net_utils
+import utils.vis as vis_utils
+from vos.davis_db import DAVIS_imdb
+import subprocess
 # Set up logging and load config options
 logger = setup_logging(__name__)
 logging.getLogger('roi_data.loader').setLevel(logging.INFO)
@@ -123,6 +135,15 @@ def parse_args():
         '--use_tfboard', help='Use tensorflow tensorboard to log training info',
         action='store_true')
 
+    parser.add_argument('--no_overwrite',help='not overwrite output', action='store_false')
+
+    parser.add_argument(
+        '--output_dir',
+        help='directory to save demo results',
+        default="./Output/")
+    parser.add_argument(
+        '--merge_pdfs', type=distutils.util.strtobool, default=True)
+
     return parser.parse_args()
 
 
@@ -145,6 +166,63 @@ def save_ckpt(output_dir, args, step, train_size, model, optimizer):
         'optimizer': optimizer.state_dict()}, save_name)
     logger.info('save model: %s', save_name)
 
+def load_ckpt(args, model):
+    ### Load checkpoint
+    load_name = args.load_ckpt
+    logging.info("loading checkpoint %s", load_name)
+    checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
+    net_utils.load_ckpt_no_mapping(model, checkpoint['model'])    
+    del checkpoint
+    torch.cuda.empty_cache()
+
+    ### Optimizer ###
+    gn_param_nameset = set()
+    for name, module in model.named_modules():
+        if isinstance(module, nn.GroupNorm):
+            gn_param_nameset.add(name+'.weight')
+            gn_param_nameset.add(name+'.bias')
+    gn_params = []
+    gn_param_names = []
+    bias_params = []
+    bias_param_names = []
+    nonbias_params = []
+    nonbias_param_names = []
+    nograd_param_names = []
+    for key, value in model.named_parameters():
+        if value.requires_grad:
+            if 'bias' in key:
+                bias_params.append(value)
+                bias_param_names.append(key)
+            elif key in gn_param_nameset:
+                gn_params.append(value)
+                gn_param_names.append(key)
+            else:
+                nonbias_params.append(value)
+                nonbias_param_names.append(key)
+        else:
+            nograd_param_names.append(key)
+    assert (gn_param_nameset - set(nograd_param_names) - set(bias_param_names)) == set(gn_param_names)
+
+    # Learning rate of 0 is a dummy value to be set properly at the start of training
+    params = [
+        {'params': nonbias_params,
+         'lr': 0,
+         'weight_decay': cfg.SOLVER.WEIGHT_DECAY},
+        {'params': bias_params,
+         'lr': 0 * (cfg.SOLVER.BIAS_DOUBLE_LR + 1),
+         'weight_decay': cfg.SOLVER.WEIGHT_DECAY if cfg.SOLVER.BIAS_WEIGHT_DECAY else 0},
+        {'params': gn_params,
+         'lr': 0,
+         'weight_decay': cfg.SOLVER.WEIGHT_DECAY_GN}
+    ]
+    # names of paramerters for each paramter
+    param_names = [nonbias_param_names, bias_param_names, gn_param_names]
+
+    if cfg.SOLVER.TYPE == "SGD":
+        optimizer = torch.optim.SGD(params, momentum=cfg.SOLVER.MOMENTUM)
+    elif cfg.SOLVER.TYPE == "Adam":
+        optimizer = torch.optim.Adam(params)
+    return optimizer    
 
 def main():
     """Main function"""
@@ -161,33 +239,26 @@ def main():
     else:
         raise ValueError("Need Cuda device to run !")
 
-    if args.dataset == "coco2017":
-        cfg.TRAIN.DATASETS = ('coco_2017_train',)
-        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
-    elif args.dataset == "keypoints_coco2017":
-        cfg.TRAIN.DATASETS = ('keypoints_coco_2017_train',)
-        cfg.MODEL.NUM_CLASSES = 2
-    elif args.dataset == "davis2017":
-        cfg.TRAIN.DATASETS = ('davis_train',)
+    if args.dataset == "davis2017":
+        cfg.TRAIN.DATASETS = ('davis_val',)
         #For davis, coco category is used.
-        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background                
+        cfg.MODEL.NUM_CLASSES = 81 #80 foreground + 1 background
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
 
+    
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
-        cfg_from_list(args.set_cfgs)        
-        
+        cfg_from_list(args.set_cfgs)
+
     if cfg.MODEL.IDENTITY_TRAINING and cfg.MODEL.IDENTITY_REPLACE_CLASS:
         cfg.MODEL.NUM_CLASSES = 145
         cfg.MODEL.IDENTITY_TRAINING = False
         cfg.MODEL.ADD_UNKNOWN_CLASS = False
 
     #Add unknow class type if necessary.
-    if cfg.MODEL.IDENTITY_TRAINING:
-          cfg.MODEL.TOTAL_INSTANCE_NUM = 145
     if cfg.MODEL.ADD_UNKNOWN_CLASS is True:
-        cfg.MODEL.NUM_CLASSES +=1   
+        cfg.MODEL.NUM_CLASSES +=1
 
     ### Adaptively adjust some configs ###
     original_batch_size = cfg.NUM_GPUS * cfg.TRAIN.IMS_PER_BATCH
@@ -252,31 +323,19 @@ def main():
 
     ### Dataset ###
     timers['roidb'].tic()
-    roidb, ratio_list, ratio_index = combined_roidb_for_training(
-        cfg.TRAIN.DATASETS, cfg.TRAIN.PROPOSAL_FILES)
+
+    assert len(cfg.TRAIN.DATASETS)==1
+    name, split = cfg.TRAIN.DATASETS[0].split('_')
+    db = DAVIS_imdb(db_name=name, split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE, use_local_id = True)
+    merged_roidb, seq_num, seq_start_end = sequenced_roidb_for_training_from_db([db] , cfg.TRAIN.PROPOSAL_FILES)
+
     timers['roidb'].toc()
-    roidb_size = len(roidb)
-    logger.info('{:d} roidb entries'.format(roidb_size))
-    logger.info('Takes %.2f sec(s) to construct roidb', timers['roidb'].average_time)
+    roidb_size = len(merged_roidb)
+    logger.info('{:d} roidbs sequences.'.format(roidb_size))
+    logger.info('Takes %.2f sec(s) to construct roidbs', timers['roidb'].average_time)
 
-    # Effective training sample size for one epoch
+    # Effective training sample size for one epoch, number of sequences.
     train_size = roidb_size // args.batch_size * args.batch_size
-
-    batchSampler = BatchSampler(
-        sampler=MinibatchSampler(ratio_list, ratio_index),
-        batch_size=args.batch_size,
-        drop_last=True
-    )
-    dataset = RoiDataLoader(
-        roidb,
-        cfg.MODEL.NUM_CLASSES,
-        training=True)
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_sampler=batchSampler,
-        num_workers=cfg.DATA_LOADER.NUM_THREADS,
-        collate_fn=collate_minibatch)
-    dataiterator = iter(dataloader)
 
     ### Model ###
     maskRCNN = vos_model_builder.Generalized_VOS_RCNN()
@@ -284,85 +343,9 @@ def main():
     if cfg.CUDA:
         maskRCNN.cuda()
 
-    ### Optimizer ###
-    gn_param_nameset = set()
-    for name, module in maskRCNN.named_modules():
-        if isinstance(module, nn.GroupNorm):
-            gn_param_nameset.add(name+'.weight')
-            gn_param_nameset.add(name+'.bias')
-    gn_params = []
-    gn_param_names = []
-    bias_params = []
-    bias_param_names = []
-    nonbias_params = []
-    nonbias_param_names = []
-    nograd_param_names = []
-    for key, value in maskRCNN.named_parameters():
-        if value.requires_grad:
-            if 'bias' in key:
-                bias_params.append(value)
-                bias_param_names.append(key)
-            elif key in gn_param_nameset:
-                gn_params.append(value)
-                gn_param_names.append(key)
-            else:
-                nonbias_params.append(value)
-                nonbias_param_names.append(key)
-        else:
-            nograd_param_names.append(key)
-    assert (gn_param_nameset - set(nograd_param_names) - set(bias_param_names)) == set(gn_param_names)
+    
 
-    # Learning rate of 0 is a dummy value to be set properly at the start of training
-    params = [
-        {'params': nonbias_params,
-         'lr': 0,
-         'weight_decay': cfg.SOLVER.WEIGHT_DECAY},
-        {'params': bias_params,
-         'lr': 0 * (cfg.SOLVER.BIAS_DOUBLE_LR + 1),
-         'weight_decay': cfg.SOLVER.WEIGHT_DECAY if cfg.SOLVER.BIAS_WEIGHT_DECAY else 0},
-        {'params': gn_params,
-         'lr': 0,
-         'weight_decay': cfg.SOLVER.WEIGHT_DECAY_GN}
-    ]
-    # names of paramerters for each paramter
-    param_names = [nonbias_param_names, bias_param_names, gn_param_names]
-
-    if cfg.SOLVER.TYPE == "SGD":
-        optimizer = torch.optim.SGD(params, momentum=cfg.SOLVER.MOMENTUM)
-    elif cfg.SOLVER.TYPE == "Adam":
-        optimizer = torch.optim.Adam(params)
-
-    ### Load checkpoint
-    if args.load_ckpt:
-        load_name = args.load_ckpt
-        logging.info("loading checkpoint %s", load_name)
-        checkpoint = torch.load(load_name, map_location=lambda storage, loc: storage)
-        net_utils.load_ckpt_no_mapping(maskRCNN, checkpoint['model'])
-        if args.resume:
-            args.start_step = checkpoint['step'] + 1
-            if 'train_size' in checkpoint:  # For backward compatibility
-                if checkpoint['train_size'] != train_size:
-                    print('train_size value: %d different from the one in checkpoint: %d'
-                          % (train_size, checkpoint['train_size']))
-
-            # reorder the params in optimizer checkpoint's params_groups if needed
-            # misc_utils.ensure_optimizer_ckpt_params_order(param_names, checkpoint)
-
-            # There is a bug in optimizer.load_state_dict on Pytorch 0.3.1.
-            # However it's fixed on master.
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            # misc_utils.load_optimizer_state_dict(optimizer, checkpoint['optimizer'])
-        del checkpoint
-        torch.cuda.empty_cache()
-
-    if args.load_detectron:  #TODO resume for detectron weights (load sgd momentum values)
-        logging.info("loading Detectron weights %s", args.load_detectron)
-        load_detectron_weight(maskRCNN, args.load_detectron,force_load_all=False)
-
-    lr = optimizer.param_groups[0]['lr']  # lr of non-bias parameters, for commmand line outputs.
-
-    maskRCNN = mynn.DataParallel(maskRCNN, cpu_keywords=['im_info', 'roidb'],
-                                 minibatch=True)
+    
 
     ### Training Setups ###
     args.run_name = misc_utils.get_run_name() + '_step'
@@ -382,98 +365,159 @@ def main():
             # Set the Tensorboard logger
             tblogger = SummaryWriter(output_dir)
 
-    ### Training Loop ###
-    maskRCNN.train()
+    for seq_idx in range(len(seq_start_end)):
+        # first frame for finetuning.        
+        start_end = seq_start_end[seq_idx,:]
+        roidbs = merged_roidb[start_end[0]:start_end[1]]
+        # For every new seq, we reload the ckpt and reset optimizer.
+        db.set_to_sequence(seq_idx)
+        cfg.immutable(False)
+        cfg.MODEL.NUM_CLASSES = db.instance_number_of_seq[seq_idx]+1
+        maskRCNN = vos_model_builder.Generalized_VOS_RCNN()
+        optimizer = load_ckpt(args, maskRCNN)
+        lr = optimizer.param_groups[0]['lr']  # lr of non-bias parameters, for commmand line outputs.
+        maskRCNN = mynn.DataParallel(maskRCNN, cpu_keywords=['im_info', 'roidb'], minibatch=True)
+        for idx in range(len(roidbs)):
+            if idx == 0:                    
+                roidb = roidbs[idx:idx+1]
+                maskRCNN.module.clean_hidden_states()
+                ### Training Loop ###
+                maskRCNN.train()
+                # Set index for decay steps
+                decay_steps_ind = None
+                for i in range(1, len(cfg.SOLVER.STEPS)):
+                    if cfg.SOLVER.STEPS[i] >= args.start_step:
+                        decay_steps_ind = i
+                        break
+                if decay_steps_ind is None:
+                    decay_steps_ind = len(cfg.SOLVER.STEPS)
 
-    CHECKPOINT_PERIOD = int(cfg.TRAIN.SNAPSHOT_ITERS / cfg.NUM_GPUS)
+                training_stats = TrainingStats(
+                    args,
+                    args.disp_interval,
+                    tblogger if args.use_tfboard and not args.no_save else None)
 
-    # Set index for decay steps
-    decay_steps_ind = None
-    for i in range(1, len(cfg.SOLVER.STEPS)):
-        if cfg.SOLVER.STEPS[i] >= args.start_step:
-            decay_steps_ind = i
-            break
-    if decay_steps_ind is None:
-        decay_steps_ind = len(cfg.SOLVER.STEPS)
-
-    training_stats = TrainingStats(
-        args,
-        args.disp_interval,
-        tblogger if args.use_tfboard and not args.no_save else None)
-    try:
-        logger.info('Training starts !')
-        step = args.start_step
-        for step in range(args.start_step, cfg.SOLVER.MAX_ITER):
-
-            # Warm up
-            if step < cfg.SOLVER.WARM_UP_ITERS:
-                method = cfg.SOLVER.WARM_UP_METHOD
-                if method == 'constant':
-                    warmup_factor = cfg.SOLVER.WARM_UP_FACTOR
-                elif method == 'linear':
-                    alpha = step / cfg.SOLVER.WARM_UP_ITERS
-                    warmup_factor = cfg.SOLVER.WARM_UP_FACTOR * (1 - alpha) + alpha
-                else:
-                    raise KeyError('Unknown SOLVER.WARM_UP_METHOD: {}'.format(method))
-                lr_new = cfg.SOLVER.BASE_LR * warmup_factor
-                net_utils.update_learning_rate(optimizer, lr, lr_new)
-                lr = optimizer.param_groups[0]['lr']
-                assert lr == lr_new
-            elif step == cfg.SOLVER.WARM_UP_ITERS:
-                net_utils.update_learning_rate(optimizer, lr, cfg.SOLVER.BASE_LR)
-                lr = optimizer.param_groups[0]['lr']
-                assert lr == cfg.SOLVER.BASE_LR
-
-            # Learning rate decay
-            if decay_steps_ind < len(cfg.SOLVER.STEPS) and \
-                    step == cfg.SOLVER.STEPS[decay_steps_ind]:
-                logger.info('Decay the learning on step %d', step)
-                lr_new = lr * cfg.SOLVER.GAMMA
-                net_utils.update_learning_rate(optimizer, lr, lr_new)
-                lr = optimizer.param_groups[0]['lr']
-                assert lr == lr_new
-                decay_steps_ind += 1
-
-            training_stats.IterTic()
-            optimizer.zero_grad()
-            for inner_iter in range(args.iter_size):
-                try:
-                    input_data = next(dataiterator)
-                except StopIteration:
-                    dataiterator = iter(dataloader)
-                    input_data = next(dataiterator)
-
+                blobs, valid = get_minibatch(roidb, target_scale = cfg.TEST.SCALE)
+                for key in blobs:
+                    if key != 'roidb' and key != 'data_flow':
+                        blobs[key] = blobs[key].squeeze(axis=0)
+                blobs['roidb'] = blob_utils.serialize(blobs['roidb'])
+                batch = collate_minibatch([blobs])
+                input_data = {}
+                for key in batch.keys():
+                    input_data[key] = batch[key][:1]
                 for key in input_data:
-                    if key != 'roidb': # roidb is a list of ndarrays with inconsistent length
+                    if key != 'roidb' and key != 'data_flow': # roidb is a list of ndarrays with inconsistent length
                         input_data[key] = list(map(Variable, input_data[key]))
+                    if key == 'data_flow':
+                        if idx != 0 and input_data[key][0][0][0] is not None: # flow is not None.
+                            input_data[key] = [Variable(torch.tensor(np.expand_dims(np.squeeze(np.array(input_data[key],dtype=np.float32)),0), device=input_data['data'][0].device))]
+                            assert input_data['data'][0].shape[-2:]==input_data[key][0].shape[-2:], "Spatial shape of image and flow are not equal."
+                        else:
+                            input_data[key] = [None]
+                try:
+                    logger.info('Training starts !')
+                    step = 0
+                    for step in range(0, cfg.SOLVER.MAX_ITER):
+                        # Warm up
+                        if step < cfg.SOLVER.WARM_UP_ITERS:
+                            method = cfg.SOLVER.WARM_UP_METHOD
+                            if method == 'constant':
+                                warmup_factor = cfg.SOLVER.WARM_UP_FACTOR
+                            elif method == 'linear':
+                                alpha = step / cfg.SOLVER.WARM_UP_ITERS
+                                warmup_factor = cfg.SOLVER.WARM_UP_FACTOR * (1 - alpha) + alpha
+                            else:
+                                raise KeyError('Unknown SOLVER.WARM_UP_METHOD: {}'.format(method))
+                            lr_new = cfg.SOLVER.BASE_LR * warmup_factor
+                            net_utils.update_learning_rate(optimizer, lr, lr_new)
+                            lr = optimizer.param_groups[0]['lr']
+                            assert lr == lr_new
+                        elif step == cfg.SOLVER.WARM_UP_ITERS:
+                            net_utils.update_learning_rate(optimizer, lr, cfg.SOLVER.BASE_LR)
+                            lr = optimizer.param_groups[0]['lr']
+                            assert lr == cfg.SOLVER.BASE_LR
 
-                net_outputs = maskRCNN(**input_data)
-                training_stats.UpdateIterStats(net_outputs, inner_iter)
-                loss = net_outputs['total_loss']
-                loss.backward()
-            optimizer.step()
-            training_stats.IterToc()
+                        # Learning rate decay
+                        if decay_steps_ind < len(cfg.SOLVER.STEPS) and \
+                                step == cfg.SOLVER.STEPS[decay_steps_ind]:
+                            logger.info('Decay the learning on step %d', step)
+                            lr_new = lr * cfg.SOLVER.GAMMA
+                            net_utils.update_learning_rate(optimizer, lr, lr_new)
+                            lr = optimizer.param_groups[0]['lr']
+                            assert lr == lr_new
+                            decay_steps_ind += 1
 
-            training_stats.LogIterStats(step, lr)
+                        training_stats.IterTic()
+                        optimizer.zero_grad()
+              
+                        net_outputs = maskRCNN(**input_data)
+                        training_stats.UpdateIterStats(net_outputs)
+                        loss = net_outputs['total_loss']
+                        loss.backward()
+                        optimizer.step()
+                        training_stats.IterToc()
+                        training_stats.LogIterStats(step, lr)      
+                    # ---- Training ends ----
+                    # Save last checkpoint
+                    #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
 
-            if (step+1) % CHECKPOINT_PERIOD == 0:
-                save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
+                except (RuntimeError, KeyboardInterrupt):
+                    del dataiterator
+                    #logger.info('Save ckpt on exception ...')
+                    #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
+                    #logger.info('Save ckpt done.')
+                    stack_trace = traceback.format_exc()
+                    print(stack_trace)
 
-        # ---- Training ends ----
-        # Save last checkpoint
-        save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
+                finally:
+                    if args.use_tfboard and not args.no_save:
+                        tblogger.close()
+                        
+            seq_name = db.get_current_seq_name()
+            cur_output_dir = osp.join(args.output_dir,seq_name)
+            if args.no_overwrite is True and osp.exists(osp.join(cur_output_dir,'results.pdf')):
+              continue
+            if not osp.isdir(cur_output_dir):
+              os.makedirs(cur_output_dir)
+              assert(cur_output_dir)
+            maskRCNN.eval()
 
-    except (RuntimeError, KeyboardInterrupt):
-        del dataiterator
-        #logger.info('Save ckpt on exception ...')
-        #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
-        #logger.info('Save ckpt done.')
-        stack_trace = traceback.format_exc()
-        print(stack_trace)
+            im = db.get_image_cv2(idx)
+            flo = db.get_flow(idx)
+            assert im is not None
+            if idx != 0:
+                assert flo is not None
+            timers = defaultdict(Timer)
+            cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN, im, flo, timers=timers)
+            im_name = '%03d-%03d'%(seq_idx,idx)
+            print(osp.join(seq_name,im_name))
+            cls_mapper = [0]+[db.local_id_to_global_id(i, seq_idx) for i in range(1, cfg.MODEL.NUM_CLASSES)]
+            vis_utils.vis_one_image(
+              im[:, :, ::-1],  # BGR -> RGB for visualization
+              im_name,
+              cur_output_dir,
+              cls_boxes,
+              cls_segms,
+              cls_keyps,
+              dataset=db,
+              box_alpha=0.3,
+              show_class=True,
+              thresh=0.7,
+              kp_thresh=2,
+              cls_mapper = cls_mapper
+            )
 
-    finally:
-        if args.use_tfboard and not args.no_save:
-            tblogger.close()
+        if args.merge_pdfs:
+            merge_out_path = '{}/results.pdf'.format(cur_output_dir)
+            if os.path.exists(merge_out_path):
+                os.remove(merge_out_path)
+            command = "pdfunite {}/*.pdf {}".format(cur_output_dir,
+                                                    merge_out_path)
+            subprocess.call(command, shell=True)
+        #TODO remove break
+        break
+
 
 
 if __name__ == '__main__':

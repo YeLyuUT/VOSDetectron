@@ -3,23 +3,26 @@ MODEL:
   CONV_BODY: FPN.fpn_ResNet101_conv5_body
   FASTER_RCNN: True
   MASK_ON: True
-  ADD_UNKNOWN_CLASS: True
+  ADD_UNKNOWN_CLASS: False
   IDENTITY_TRAINING: True
-  CLS_AGNOSTIC_BBOX_REG: True
+  CLS_AGNOSTIC_BBOX_REG: False
   LOAD_FLOW_FILE: True
 NUM_GPUS: 1
 SOLVER:
   WEIGHT_DECAY: 0.0001
   LR_POLICY: steps_with_decay
-  BASE_LR: 0.02 # TODO: change learning rate.
+  BASE_LR: 0.002
   GAMMA: 0.1
-  MAX_ITER: 270000 # TODO: change steps.
-  STEPS: [0, 210000, 250000]
+  WARM_UP_ITERS: 20
+  MAX_ITER: 500
+  STEPS: [0, 400, 450]
 FPN:
   FPN_ON: True
   MULTILEVEL_ROIS: True
   MULTILEVEL_RPN: True
   USE_GN: True  # Note: use GN on the FPN-specific layers
+  RPN_ANCHOR_START_SIZE: 32 # TODO can change to bigger value(such as 48 or 64). Default: 32 64 128 256 512
+  ROI_CANONICAL_SCALE: 224 # TODO can change to bigger value
 RESNETS:
   IMAGENET_PRETRAINED_WEIGHTS: '../../data/pretrained_model/R-101-GN.pkl'
   STRIDE_1X1: False  # default True for MSRA; False for C2 or Torch models
@@ -38,9 +41,9 @@ MRCNN:
   ROI_XFORM_METHOD: RoIAlign
   ROI_XFORM_RESOLUTION: 14  # default 7
   ROI_XFORM_SAMPLING_RATIO: 2  # default 0
-  DILATION: 1  # default 2
+  DILATION: 2  # default 2
   CONV_INIT: MSRAFill  # default GaussianFill
-  CLS_SPECIFIC_MASK: False
+  CLS_SPECIFIC_MASK: True
 CONVGRU:
   DYNAMIC_MODEL: True
 RPN:
@@ -51,9 +54,11 @@ TRAIN:
   IMS_PER_BATCH: 1
   BATCH_SIZE_PER_IM: 512
   RPN_PRE_NMS_TOP_N: 2000  # Per FPN level
-  RPN_FG_FRACTION: 0.5 # Higher FG fraction for higher recall.
+  RPN_FG_FRACTION: 0.8 # Higher FG fraction for higher recall.
   USE_FLIPPED: False
-  PROPOSAL_FILES: None
+  FREEZE_CONV_BODY: True
+  FREEZE_CONV_GRU: True
+  SNAPSHOT_ITERS: 1500
 TEST:
   SCALE: 800
   MAX_SIZE: 1333

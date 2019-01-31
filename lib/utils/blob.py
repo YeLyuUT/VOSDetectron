@@ -60,6 +60,19 @@ def get_image_blob(im, target_scale, target_max_size):
     im_info = np.hstack((height, width, im_scale))[np.newaxis, :]
     return blob, im_scale, im_info.astype(np.float32)
 
+def flo_to_blob(flo, target_size, target_max_size):
+    """
+    """
+    flo, flo_scale = prep_im_for_blob(flo, (0, 0), [target_size], target_max_size)
+    flo = flo[0]*flo_scale # scale the value.
+    flo_scale = flo_scale[0]
+
+    max_shape = get_max_shape([flo.shape[:2]])
+    blob = np.zeros((1, max_shape[0], max_shape[1], 2), dtype=np.float32)
+    blob[0, 0:flo.shape[0], 0:flo.shape[1], :] = flo
+    channel_swap = (0, 3, 1, 2)
+    blob = blob.transpose(channel_swap)
+    return blob
 
 def im_list_to_blob(ims):
     """Convert a list of images into a network input. Assumes images were
@@ -73,7 +86,7 @@ def im_list_to_blob(ims):
     """
     if not isinstance(ims, list):
         ims = [ims]
-        
+
     max_shape = get_max_shape([im.shape[:2] for im in ims])
     num_images = len(ims)
     blob = np.zeros(

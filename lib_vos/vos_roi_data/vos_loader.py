@@ -29,9 +29,9 @@ class RoiDataLoader(data.Dataset):
         self.training = training
         self.DATA_SIZE = len(self._roidb)
 
-    def __getitem__(self, index):  
+    def __getitem__(self, index, scale):  
         single_db = [self._roidb[index]]
-        blobs, valid = get_minibatch(single_db)
+        blobs, valid = get_minibatch(single_db, scale)
         #TODO: Check if minibatch is valid ? If not, abandon it.
         # Need to change _worker_loop in torch.utils.data.dataloader.py.
         # Squeeze batch dim
@@ -47,16 +47,24 @@ class RoiDataLoader(data.Dataset):
 
 
 class MinibatchSampler(torch_sampler.Sampler):
-    def __init__(self, seq_num, seq_start_end):
+    def __init__(self, seq_num, seq_start_end, training = True):
         self.seq_num = seq_num
         self.seq_start_end = seq_start_end
         self.num_data = seq_num
 
     def __iter__(self):
-        rand_perm = npr.permutation(self.seq_num)
+        if training is True:
+            rand_perm = npr.permutation(self.seq_num)
+        else:
+            rand_perm = np.arange(self.seq_num)
+
         shuffled_seq_start_end = self.seq_start_end[rand_perm,:]        
+
+        scale_inds = np.random.randint(
+            0, high=len(cfg.TRAIN.SCALES), size=self.seq_num)
         #randomly sample from sequence.
         idx_list = []
+        scale_list = []
         for idx in range(self.seq_num):
             cur_se = shuffled_seq_start_end[idx,:]
             assert(cur_se[1] > cur_se[0])
@@ -64,10 +72,15 @@ class MinibatchSampler(torch_sampler.Sampler):
             if length<cfg.MODEL.SEQUENCE_LENGTH:
                 raise ValueError('length of the sequence is shorter than cfg.MODEL.SEQUENCE_LENGTH.')
             else:
-                id_start = randi(0, length-cfg.MODEL.SEQUENCE_LENGTH)+int(cur_se[0])
-                id_end = id_start+cfg.MODEL.SEQUENCE_LENGTH
+                if training is True:
+                    id_start = randi(0, length-cfg.MODEL.SEQUENCE_LENGTH)+int(cur_se[0])
+                    id_end = id_start+cfg.MODEL.SEQUENCE_LENGTH
+                else:
+                    id_start = 0
+                    id_end = length
                 idx_list.extend(list(range(id_start, id_end)))
-        return iter(idx_list)
+                scale_list.extend([cfg.TRAIN.SCALES[scale_inds[idx]]]*(id_end-id_start))
+        return iter(zip(idx_list, scale_list))
 
     def __len__(self):
         return self.seq_num

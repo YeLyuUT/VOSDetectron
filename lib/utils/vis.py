@@ -153,7 +153,7 @@ def binary_result_to_color_result():
 def vis_one_image(
         im, im_name, output_dir, boxes, segms=None, keypoints=None, thresh=0.9,
         kp_thresh=2, dpi=200, box_alpha=0.0, dataset=None, show_class=False,
-        ext='pdf'):
+        ext='pdf', cls_mapper = None):
     """Visual debugging of detections."""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -193,8 +193,11 @@ def vis_one_image(
         score = boxes[i, -1]
         if score < thresh:
             continue
-
-        print(dataset.classes[classes[i]], score)
+        if not cls_mapper is None:
+            class_idx = cls_mapper[classes[i]]
+        else:
+            class_idx = classes[i]
+        print(dataset.classes[class_idx], score)
         # show box (off by default, box_alpha=0.0)
         ax.add_patch(
             plt.Rectangle((bbox[0], bbox[1]),
@@ -206,7 +209,7 @@ def vis_one_image(
         if show_class:
             ax.text(
                 bbox[0], bbox[1] - 2,
-                get_class_string(classes[i], score, dataset),
+                get_class_string(class_idx, score, dataset),
                 fontsize=3,
                 family='serif',
                 bbox=dict(
