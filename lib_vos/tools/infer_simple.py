@@ -68,13 +68,21 @@ def parse_args():
         '--no_cuda', dest='cuda', help='whether use CUDA', action='store_false')
 
     parser.add_argument('--load_ckpt', help='path of checkpoint to load')
+    parser.add_argument('--load_detectron', help='path to the detectron weight pickle file')
 
+    parser.add_argument(
+        '--image_dir',
+        help='directory to load images for demo')
+    parser.add_argument(
+        '--images', nargs='+',
+        help='images to infer. Must not use with --image_dir')
     parser.add_argument(
         '--output_dir',
         help='directory to save demo results',
         default="infer_outputs")
     parser.add_argument(
         '--merge_pdfs', type=distutils.util.strtobool, default=True)
+
 
     args = parser.parse_args()
 
