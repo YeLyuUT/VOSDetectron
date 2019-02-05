@@ -237,8 +237,10 @@ def _compute_targets(entry):
     gt_rois = rois[gt_inds[gt_assignment], :]
     ex_rois = rois[ex_inds, :]
     # Use class "1" for all boxes if using class_agnostic_bbox_reg
-    targets[ex_inds, 0] = (
-        1 if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG else labels[ex_inds])
+    # L modify
+    #targets[ex_inds, 0] = (
+      #  1 if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG else labels[ex_inds])
+    targets[ex_inds, 0] = (labels[ex_inds])
     targets[ex_inds, 1:] = box_utils.bbox_transform_inv(
         ex_rois, gt_rois, cfg.MODEL.BBOX_REG_WEIGHTS)
     return targets

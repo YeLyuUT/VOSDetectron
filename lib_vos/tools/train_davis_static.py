@@ -404,7 +404,6 @@ def main():
         logger.info('Training starts !')
         step = args.start_step
         for step in range(args.start_step, cfg.SOLVER.MAX_ITER):
-
             # Warm up
             if step < cfg.SOLVER.WARM_UP_ITERS:
                 method = cfg.SOLVER.WARM_UP_METHOD
