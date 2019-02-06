@@ -30,5 +30,6 @@ __C.COCO_API_HOME = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Dat
 __C.DAVIS = AttrDict()
 __C.DAVIS.HOME = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Dataset/DAVIS/davis-2017'
 __C.DAVIS.FLOW_DIR = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Opensrc_proj/LiteFlowNet/models/testing/davis_flow_backward'
+__C.DAVIS.FLOW_INV_DIR = '/media/yelyu/18339a64-762e-4258-a609-c0851cd8163e/YeLyu/Opensrc_proj/LiteFlowNet/models/testing/davis_flow_forward'
 __C.DAVIS.FLOW_FILENAME_TEMPLATE = 'liteflownet-%07d.flo'
 
