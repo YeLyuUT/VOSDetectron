@@ -45,7 +45,7 @@ splits = ['train','val','trainval','test-dev']
 
 
 class DAVIS_imdb(vos_imdb):
-  def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False, use_local_id = False):
+  def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False, load_inv_db=False,use_local_id = False):
     '''
     Args:
     cls_mapper(dict type): VOS dataset only provides instance id label or class label that
@@ -95,7 +95,8 @@ class DAVIS_imdb(vos_imdb):
     self.debug_timer = Timer()
     self.keypoints = None
     self.load_flow = load_flow
-
+    # load_inv_db: only affect get_separate_roidb_from_all_sequences
+    self.load_inv_db = load_inv_db
     #self.COCO = datasets.get_coco_dataset()
     #category_ids = list(self.COCO.classes.keys())
     #categories = list(self.COCO.classes.values())
@@ -155,6 +156,17 @@ class DAVIS_imdb(vos_imdb):
       return flo_read(flow_file_path)
     else:
       raise ValueError("idx should be integer >= 0")
+
+  def get_inv_flow(self, idx):
+    if idx==self.get_current_seq_length()-1:
+      return None
+    elif idx<self.get_current_seq_length()-1:
+      flow_file_name = cfg.DAVIS.FLOW_FILENAME_TEMPLATE%(idx)
+      flow_file_path = osp.join(cfg.DAVIS.FLOW_INV_DIR, self.get_current_seq_name(), flow_file_name)
+      assert(osp.exists(flow_file_path))
+      return flo_read(flow_file_path)
+    else:
+      raise ValueError("idx should be integer <= self.get_current_seq_length()-1")
 
   def get_gt_with_color(self, idx):
     return cfg_davis.palette[self.db.annotations[self.seq_idx][idx]][...,[2,1,0]]
@@ -281,6 +293,25 @@ class DAVIS_imdb(vos_imdb):
         roidb['flow'] = None
     return roidb
 
+  def get_roidb_at_idx_from_sequence_with_inv_flow(self, idx):
+    roidb = {}
+    seq = self.get_current_seq()
+    gt = self.get_gt(idx)
+    roidb['image'] = seq.files[idx]
+    roidb['height'] = gt.shape[0]
+    roidb['width'] = gt.shape[1]
+    roidb['seq_idx'] = self.get_current_seq_index()
+    roidb['idx'] = idx
+    if self.load_flow is True:
+      if idx<self.get_current_seq_length()-1:
+        flow_file_name = cfg.DAVIS.FLOW_FILENAME_TEMPLATE%(idx)
+        flow_file_path = osp.join(cfg.DAVIS.FLOW_INV_DIR, self.get_current_seq_name(), flow_file_name)
+        assert(osp.exists(flow_file_path))
+        roidb['flow'] = flow_file_path
+      else:
+        roidb['flow'] = None
+    return roidb
+
   def prepare_roi_db(self, roidb, db_name, proposal_file = None):
     for entry in roidb:
       self._prep_roidb_entry(entry)
@@ -330,6 +361,7 @@ class DAVIS_imdb(vos_imdb):
           format(self.debug_timer.toc(average=False))
       )
     _add_class_assignments(roidb)
+    _check_box_valid(roidb)
 
   def _prep_roidb_entry(self, entry):
     """Adds empty metadata fields to an roidb entry."""
@@ -503,6 +535,7 @@ class DAVIS_imdb(vos_imdb):
       values = [cached_entry[key] for key in self.valid_cached_keys]
       boxes, segms, gt_classes, instance_id, global_instance_id, seg_areas, gt_overlaps, gt_overlaps_id, is_crowd, \
         box_to_gt_ind_map = values[:10]
+
       entry['boxes'] = np.append(entry['boxes'], boxes, axis=0)
       entry['segms'].extend(segms)
       # To match the original implementation:
@@ -559,6 +592,20 @@ class DAVIS_imdb(vos_imdb):
     self.prepare_roi_db(roidb, db_name = db_name,proposal_file = proposal_file)
     print('Done.')
     return roidb
+
+  def get_roidb_from_seq_idx_sequence_inv(self, seq_idx, proposal_file = None):
+    roidb = []    
+    self.debug_timer.tic()
+    self.set_to_sequence(seq_idx)
+    print('preparing davis inv roidb of %dth(%s) sequence...'%(seq_idx,self.get_current_seq_name()))
+    seq_len = self.get_current_seq_length()
+    for idx in range(seq_len):
+        roidb.append(self.get_roidb_at_idx_from_sequence_with_inv_flow(seq_len-1-idx))
+    db_name = self.name+'_'+self.split+'_%d_inv_sequence_roidb.pkl'%(seq_idx)
+    self.prepare_roi_db(roidb, db_name = db_name,proposal_file = proposal_file)
+    print('Done.')
+    return roidb
+    
     
   def get_roidb_from_all_sequences(self, proposal_file = None):
     roidb = []
@@ -571,12 +618,20 @@ class DAVIS_imdb(vos_imdb):
     roidbs = []
     self.debug_timer.tic()
     for seq_idx in range(self.get_num_sequence()):
-      roidbs.append(self.get_roidb_from_seq_idx_sequence(seq_idx, proposal_file = proposal_file))      
-      break
+      roidbs.append(self.get_roidb_from_seq_idx_sequence(seq_idx, proposal_file = None))
+    if self.load_inv_db is True:
+      for seq_idx in range(self.get_num_sequence()):
+        roidbs.append(self.get_roidb_from_seq_idx_sequence_inv(seq_idx, proposal_file = None))
     return roidbs
   
   def _create_db_from_label(self):
     pass
+
+def _check_box_valid(roidb):
+  for entry in roidb:
+    for box in entry['boxes']:
+      assert(box[2]>box[0])
+      assert(box[3]>box[1])
 
 def add_proposals(roidb, rois, scales, crowd_thresh):
     """Add proposal boxes (rois) to an roidb that has ground-truth annotations

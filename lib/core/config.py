@@ -931,7 +931,7 @@ __C.MODEL.IDENTITY_REPLACE_CLASS = True
 # Dynamically determine the instance number.
 __C.MODEL.TOTAL_INSTANCE_NUM = 0
 __C.MODEL.LOAD_FLOW_FILE = False
-__C.MODEL.SEQUENCE_LENGTH = 10
+__C.MODEL.SEQUENCE_LENGTH = 1
 __C.TRAIN.FREEZE_CONV_GRU = False
 #Number of detection per class.
 __C.TEST.NUM_DET_PER_CLASS = 0 

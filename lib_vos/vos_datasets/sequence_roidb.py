@@ -70,7 +70,7 @@ def sequenced_roidb_for_training_from_db(dbs, proposal_files):
         
     return merged_roidb, seq_num, seq_start_end
 
-def sequenced_roidb_for_training(dataset_names, proposal_files, use_local_id = False):
+def sequenced_roidb_for_training(dataset_names, proposal_files, load_inv_db = False, use_local_id = False):
     """Load and concatenate roidbs for one or more datasets, along with optional
     object proposals. The roidb entries are then prepared for use in training,
     which involves caching certain types of metadata for each roidb entry.
@@ -81,7 +81,7 @@ def sequenced_roidb_for_training(dataset_names, proposal_files, use_local_id = F
         if 'davis' in dataset_name:
           name, split = dataset_name.split('_')
           #year = '2017', split = 'train'
-          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE, use_local_id = use_local_id)
+          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE, load_inv_db = load_inv_db, use_local_id = use_local_id)
           #roidb = ds.get_roidb_from_all_sequences()
           roidbs = ds.get_separate_roidb_from_all_sequences(proposal_file=proposal_file)
         else:
@@ -274,8 +274,9 @@ def _compute_targets(entry):
     gt_rois = rois[gt_inds[gt_assignment], :]
     ex_rois = rois[ex_inds, :]
     # Use class "1" for all boxes if using class_agnostic_bbox_reg
-    targets[ex_inds, 0] = (
-        1 if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG else labels[ex_inds])
+    #targets[ex_inds, 0] = (
+      #  1 if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG else labels[ex_inds])
+    targets[ex_inds, 0] = (labels[ex_inds])
     targets[ex_inds, 1:] = box_utils.bbox_transform_inv(
         ex_rois, gt_rois, cfg.MODEL.BBOX_REG_WEIGHTS)
     return targets
