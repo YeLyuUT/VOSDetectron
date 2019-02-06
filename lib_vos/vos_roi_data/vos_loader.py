@@ -29,7 +29,8 @@ class RoiDataLoader(data.Dataset):
         self.training = training
         self.DATA_SIZE = len(self._roidb)
 
-    def __getitem__(self, index, scale):  
+    def __getitem__(self, index_tuple):  
+        index, scale = index_tuple
         single_db = [self._roidb[index]]
         blobs, valid = get_minibatch(single_db, scale)
         #TODO: Check if minibatch is valid ? If not, abandon it.
@@ -51,9 +52,10 @@ class MinibatchSampler(torch_sampler.Sampler):
         self.seq_num = seq_num
         self.seq_start_end = seq_start_end
         self.num_data = seq_num
+        self.training = training
 
     def __iter__(self):
-        if training is True:
+        if self.training is True:
             rand_perm = npr.permutation(self.seq_num)
         else:
             rand_perm = np.arange(self.seq_num)
@@ -72,7 +74,7 @@ class MinibatchSampler(torch_sampler.Sampler):
             if length<cfg.MODEL.SEQUENCE_LENGTH:
                 raise ValueError('length of the sequence is shorter than cfg.MODEL.SEQUENCE_LENGTH.')
             else:
-                if training is True:
+                if self.training is True:
                     id_start = randi(0, length-cfg.MODEL.SEQUENCE_LENGTH)+int(cur_se[0])
                     id_end = id_start+cfg.MODEL.SEQUENCE_LENGTH
                 else:
@@ -80,6 +82,7 @@ class MinibatchSampler(torch_sampler.Sampler):
                     id_end = length
                 idx_list.extend(list(range(id_start, id_end)))
                 scale_list.extend([cfg.TRAIN.SCALES[scale_inds[idx]]]*(id_end-id_start))
+        assert len(idx_list)==len(scale_list)
         return iter(zip(idx_list, scale_list))
 
     def __len__(self):
