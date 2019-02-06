@@ -5,23 +5,24 @@ MODEL:
   MASK_ON: True
   ADD_UNKNOWN_CLASS: False
   IDENTITY_TRAINING: True
-  CLS_AGNOSTIC_BBOX_REG: False
+  CLS_AGNOSTIC_BBOX_REG: True
   LOAD_FLOW_FILE: True
+  SEQUENCE_LENGTH: 8
 NUM_GPUS: 1
 SOLVER:
   WEIGHT_DECAY: 0.0001
   LR_POLICY: steps_with_decay
   BASE_LR: 0.002
   GAMMA: 0.1
-  MAX_ITER: 6000
-  STEPS: [0, 4500, 5500]
+  MAX_ITER: 13000
+  STEPS: [0, 10000, 11500]
 FPN:
   FPN_ON: True
   MULTILEVEL_ROIS: True
   MULTILEVEL_RPN: True
   USE_GN: True  # Note: use GN on the FPN-specific layers
   RPN_ANCHOR_START_SIZE: 32 # TODO can change to bigger value(such as 48 or 64). Default: 32 64 128 256 512
-  ROI_CANONICAL_SCALE: 224 # TODO can change to bigger value
+  ROI_CANONICAL_SCALE: 448 # TODO can change to bigger value
 RESNETS:
   IMAGENET_PRETRAINED_WEIGHTS: '../../data/pretrained_model/R-101-GN.pkl'
   STRIDE_1X1: False  # default True for MSRA; False for C2 or Torch models
@@ -36,29 +37,30 @@ FAST_RCNN:
   ROI_XFORM_SAMPLING_RATIO: 2
 MRCNN:
   ROI_MASK_HEAD: mask_rcnn_heads.mask_rcnn_fcn_head_v1up4convs_gn  # Note: this is a GN mask head
-  RESOLUTION: 28  # (output mask resolution) default 14
+  RESOLUTION: 56  # (output mask resolution) default 14
   ROI_XFORM_METHOD: RoIAlign
-  ROI_XFORM_RESOLUTION: 14  # default 7
+  ROI_XFORM_RESOLUTION: 28  # default 7
   ROI_XFORM_SAMPLING_RATIO: 2  # default 0
   DILATION: 2  # default 2
   CONV_INIT: MSRAFill  # default GaussianFill
-  CLS_SPECIFIC_MASK: True
+  CLS_SPECIFIC_MASK: False
 CONVGRU:
   DYNAMIC_MODEL: True
 RPN:
   ASPECT_RATIOS: (0.2, 0.5, 1, 2, 5)
 TRAIN:
-  SCALES: (800,)
+  SCALES: (640, 608, 576, 544, 480, 416, 384, 352, 320)
   MAX_SIZE: 1333
   IMS_PER_BATCH: 1
-  BATCH_SIZE_PER_IM: 512
-  RPN_PRE_NMS_TOP_N: 2000  # Per FPN level
+  BATCH_SIZE_PER_IM: 128
+  RPN_PRE_NMS_TOP_N: 1024  # Per FPN level
+  RPN_POST_NMS_TOP_N: 512
   RPN_FG_FRACTION: 0.8 # Higher FG fraction for higher recall.
   USE_FLIPPED: False
   FREEZE_CONV_BODY: True
-  SNAPSHOT_ITERS: 1500
+  SNAPSHOT_ITERS: 3000
 TEST:
-  SCALE: 800
+  SCALE: 480
   MAX_SIZE: 1333
   NMS: 0.5
   RPN_PRE_NMS_TOP_N: 1000  # Per FPN level
