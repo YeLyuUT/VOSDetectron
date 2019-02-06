@@ -41,7 +41,7 @@ from utils.detectron_weight_helper import load_detectron_weight
 from utils.logging import setup_logging
 from utils.timer import Timer
 from utils.training_stats import TrainingStats
-
+#from vos_model.flow_align.functions.flow_align import FlowAlignFunction
 # Set up logging and load config options
 logger = setup_logging(__name__)
 logging.getLogger('roi_data.loader').setLevel(logging.INFO)
@@ -247,7 +247,7 @@ def main():
     ### Dataset ###
     timers['roidb'].tic()
     merged_roidb, seq_num, seq_start_end = sequenced_roidb_for_training(
-        cfg.TRAIN.DATASETS, cfg.TRAIN.PROPOSAL_FILES)
+        cfg.TRAIN.DATASETS, cfg.TRAIN.PROPOSAL_FILES, load_inv_db = True)
 
     timers['roidb'].toc()
     roidb_size = len(merged_roidb)
@@ -264,7 +264,7 @@ def main():
     dataset = RoiDataLoader(
         merged_roidb,
         cfg.MODEL.NUM_CLASSES,
-        training=True)
+        training=False)#TODO change to True
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_sampler=batchSampler,
@@ -451,10 +451,15 @@ def main():
                             assert input_data['data'][0].shape[-2:]==input_data[key][0].shape[-2:], "Spatial shape of image and flow are not equal."
                         else:
                             input_data[key] = [None]
+
                 net_outputs = maskRCNN(**input_data)
                 training_stats.UpdateIterStats(net_outputs, inner_iter)
                 loss = net_outputs['total_loss']
-                loss.backward()
+                if inner_iter == cfg.MODEL.SEQUENCE_LENGTH-1:
+                    loss.backward()
+                else:
+                    loss.backward(retain_graph=True)
+            
             optimizer.step()
             training_stats.IterToc()
 

@@ -119,7 +119,6 @@ class Generalized_VOS_RCNN(nn.Module):
               self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(
                   self.Box_Head.dim_out)
 
-
         # Mask Branch
         if cfg.MODEL.MASK_ON:
             self.Mask_Head = get_func(cfg.MRCNN.ROI_MASK_HEAD)(
@@ -204,9 +203,14 @@ class Generalized_VOS_RCNN(nn.Module):
         return_dict = {}  # A dict to collect return variables
 
         blob_conv = self.Conv_Body(im_data)
-    
         assert(len(blob_conv)==5)
+
+        # if gru is for dynamic model, we train gru only.
+        if cfg.CONVGRU.DYNAMIC_MODEL:
+            for i in range(5):
+                blob_conv[i].detach_()
         
+        # hidden states management.
         if not cfg.CONVGRU.DYNAMIC_MODEL:
             #Every time, the image size may be different, so we create new hidden states.
             self.create_hidden_states(blob_conv)
@@ -229,7 +233,8 @@ class Generalized_VOS_RCNN(nn.Module):
                 pass
 
         for i in range(5):            
-            blob_conv[i] = self.ConvGRUs[i]( (blob_conv[i], self.hidden_states[i]) )
+            self.hidden_states[i] = self.ConvGRUs[i]( (blob_conv[i], self.hidden_states[i]) )
+            blob_conv[i] = self.hidden_states[i]
 
         rpn_ret = self.RPN(blob_conv, im_info, roidb)
 
