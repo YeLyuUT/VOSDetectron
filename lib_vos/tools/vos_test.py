@@ -752,6 +752,7 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
     """
     num_classes = cfg.MODEL.NUM_CLASSES
     cls_boxes = [[] for _ in range(num_classes)]
+
     # Apply threshold on detection probabilities and apply NMS
     # Skip j = 0, because it's the background class
     for j in range(1, num_classes):
@@ -779,8 +780,8 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
                 cfg.TEST.BBOX_VOTE.VOTE_TH,
                 scoring_method=cfg.TEST.BBOX_VOTE.SCORING_METHOD
             )
-        cls_boxes[j] = nms_dets
-    
+        cls_boxes[j] = nms_dets    
+
     # Limit to max_per_image detections **over all classes**
     if cfg.TEST.DETECTIONS_PER_IM > 0:
         image_scores = np.hstack(
@@ -791,11 +792,36 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
             for j in range(1, num_classes):
                 keep = np.where(cls_boxes[j][:, -1] >= image_thresh)[0]
                 cls_boxes[j] = cls_boxes[j][keep, :]
-                
+
+    # nms between classes.
+    if cfg.TEST.NMS_CROSS_CLASS > 0.:
+        '''
+        # code to keep some of the dets.
+        all_cls_boxes = []
+        reserved_cls = []
+        for j in range(1, num_classes):
+            tmp_cls_boxes = np.copy(cls_boxes[j])
+            # if only one det for cls j, we keep it.
+            if tmp_cls_boxes.shape[0] == 1:
+                tmp_cls_boxes[:,-1] = 1.0
+            all_cls_boxes.append(tmp_cls_boxes)
+        all_dets_for_nms = np.vstack(all_cls_boxes)
+        '''
+        all_dets = np.vstack([cls_boxes[j] for j in range(1, num_classes)])
+        class_ids = np.vstack([np.ones(shape=(len(cls_boxes[j]), 1))*j for j in range(1, num_classes)])
+        keep = box_utils.nms(all_dets, cfg.TEST.NMS_CROSS_CLASS)
+        all_dets = all_dets[keep, :]
+        class_ids = class_ids[keep, :]
+        for j in range(1, num_classes):
+            idx_j = np.where(class_ids==j)[0]
+            cls_boxes[j] = all_dets[idx_j, :]
+
+    # select one best for each class.
     if cfg.TEST.NUM_DET_PER_CLASS>0:
         for j in range(1, num_classes):
             keep = np.argsort(-cls_boxes[j][:, -1])[:cfg.TEST.NUM_DET_PER_CLASS]
             cls_boxes[j] = cls_boxes[j][keep, :]
+
 
     im_results = np.vstack([cls_boxes[j] for j in range(1, num_classes)])
     boxes = im_results[:, :-1]
