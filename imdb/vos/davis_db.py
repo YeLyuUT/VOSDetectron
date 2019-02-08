@@ -45,7 +45,7 @@ splits = ['train','val','trainval','test-dev']
 
 
 class DAVIS_imdb(vos_imdb):
-  def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False, load_inv_db=False,use_local_id = False):
+  def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False, load_inv_db=False):
     '''
     Args:
     cls_mapper(dict type): VOS dataset only provides instance id label or class label that
@@ -66,12 +66,16 @@ class DAVIS_imdb(vos_imdb):
         raise ValueError('split not recognizable')
       if split=='train':
         self.phase = phase.TRAIN
+        self.use_local_id = False
       elif split=='val':
         self.phase = phase.VAL
+        self.use_local_id = True
       elif split=='trainval':
         self.phase = phase.TRAINVAL
+        self.use_local_id = False
       elif split=='test-dev':
         self.phase = phase.TESTDEV
+        self.use_local_id = True
       else:
         raise ValueError('split not recognizable')
       if cfg_davis.PHASE!=self.phase:
@@ -79,8 +83,7 @@ class DAVIS_imdb(vos_imdb):
         cfg_davis.PHASE = self.phase
     print('year:',cfg_davis.YEAR)
     print('phase:',cfg_davis.PHASE.value)
-    self.db = DAVISLoader(year=cfg_davis.YEAR,phase=cfg_davis.PHASE)
-    self.use_local_id = use_local_id
+    self.db = DAVISLoader(year=cfg_davis.YEAR,phase=cfg_davis.PHASE)    
     self.seq_idx = 0
     self.cls_mapper = None
     if cls_mapper is not None:
@@ -108,6 +111,7 @@ class DAVIS_imdb(vos_imdb):
     self.category_to_id_map = dict(zip(categories, category_ids))
     print(self.category_to_id_map)
     self.num_classes = len(self.classes)
+    self.cfg = cfg_davis
     
   @property
   def valid_cached_keys(self):
@@ -182,7 +186,7 @@ class DAVIS_imdb(vos_imdb):
         out[ann==val] = len(vals)-1
     return out
 
-  def get_bboxes(self,idx):
+  def get_bboxes(self, idx):
     gt = self.get_gt(idx)
     vals = np.unique(gt)
     boxes = []
@@ -193,7 +197,7 @@ class DAVIS_imdb(vos_imdb):
         mask = np.array(gt==val,dtype=np.uint8)
         #make sure gt==val is converted to value in 0 and 1.
         assert(len(set(mask.reshape(-1))-{0,1})==0)
-        x,y,w,h = cv2.boundingRect(mask)
+        x,y,w,h = cv2.boundingRect(mask)        
         boxes.append([x,y,w,h])
     return boxes
 
@@ -390,6 +394,13 @@ class DAVIS_imdb(vos_imdb):
     # in the list of rois that satisfy np.where(entry['gt_classes'] > 0)
     entry['box_to_gt_ind_map'] = np.empty((0), dtype=np.int32)
 
+  def _expand_box(self,  x, y, w, h, rate = 0.15):
+    expand_length = np.sqrt(w*h)*rate
+    x = x-expand_length/2.
+    y = y-expand_length/2.
+    h = h+expand_length
+    w = w+expand_length
+    return x,y,w,h
 
   def _add_gt_annotations(self, entry):
     """Add ground truth annotation metadata to an roidb entry.
@@ -410,7 +421,7 @@ class DAVIS_imdb(vos_imdb):
         #make sure gt==val is converted to value in 0 and 1.
         assert(len(set(mask.reshape(-1))-{0,1})==0)
         x,y,w,h = cv2.boundingRect(mask)
-
+        x,y,w,h = self._expand_box(x, y, w, h, rate = 0.15)
         #obj['segmentation'] = binary_mask_to_rle(mask)
         obj['segmentation'] = mask_util.encode(np.array(mask, order='F', dtype=np.uint8))
         obj['area'] = np.sum(mask)
@@ -420,7 +431,7 @@ class DAVIS_imdb(vos_imdb):
           #set category id by cls_mapper.
           obj['category_id'] = self.cls_mapper[val]
         else:
-          if self.use_local_id:
+          if not self.use_local_id:
             obj['category_id'] = self.global_instance_id_start_of_seq[seq_idx]+val-1
           else:
             obj['category_id'] = val

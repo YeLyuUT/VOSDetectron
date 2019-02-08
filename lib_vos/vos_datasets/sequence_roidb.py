@@ -81,7 +81,7 @@ def sequenced_roidb_for_training(dataset_names, proposal_files, load_inv_db = Fa
         if 'davis' in dataset_name:
           name, split = dataset_name.split('_')
           #year = '2017', split = 'train'
-          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE, load_inv_db = load_inv_db, use_local_id = use_local_id)
+          ds = DAVIS_imdb(db_name="DAVIS", split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE, load_inv_db = load_inv_db)
           #roidb = ds.get_roidb_from_all_sequences()
           roidbs = ds.get_separate_roidb_from_all_sequences(proposal_file=proposal_file)
         else:
