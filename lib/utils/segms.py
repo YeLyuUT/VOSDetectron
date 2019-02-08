@@ -115,6 +115,7 @@ def mask_to_bbox(mask):
   x1 = xs[-1]
   y0 = ys[0]
   y1 = ys[-1]
+
   return np.array((x0, y0, x1, y1), dtype=np.float32)
 
 def round_to_int_box(box):

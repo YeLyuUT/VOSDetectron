@@ -53,6 +53,7 @@ import utils.net as net_utils
 import utils.vis as vis_utils
 from vos.davis_db import DAVIS_imdb
 import subprocess
+from numpy import random as npr
 # Set up logging and load config options
 logger = setup_logging(__name__)
 logging.getLogger('roi_data.loader').setLevel(logging.INFO)
@@ -135,7 +136,7 @@ def parse_args():
         '--use_tfboard', help='Use tensorflow tensorboard to log training info',
         action='store_true')
 
-    parser.add_argument('--no_overwrite',help='not overwrite output', action='store_false')
+    parser.add_argument('--no_overwrite',help='not overwrite output', action='store_true')
 
     parser.add_argument(
         '--output_dir',
@@ -246,7 +247,6 @@ def main():
     else:
         raise ValueError("Unexpected args.dataset: {}".format(args.dataset))
 
-    
     cfg_from_file(args.cfg_file)
     if args.set_cfgs is not None:
         cfg_from_list(args.set_cfgs)
@@ -326,7 +326,7 @@ def main():
 
     assert len(cfg.TRAIN.DATASETS)==1
     name, split = cfg.TRAIN.DATASETS[0].split('_')
-    db = DAVIS_imdb(db_name=name, split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE, use_local_id = True)
+    db = DAVIS_imdb(db_name=name, split = split, cls_mapper = None, load_flow=cfg.MODEL.LOAD_FLOW_FILE)
     merged_roidb, seq_num, seq_start_end = sequenced_roidb_for_training_from_db([db] , cfg.TRAIN.PROPOSAL_FILES)
 
     timers['roidb'].toc()
@@ -343,9 +343,6 @@ def main():
     if cfg.CUDA:
         maskRCNN.cuda()
 
-    
-
-    
 
     ### Training Setups ###
     args.run_name = misc_utils.get_run_name() + '_step'
@@ -366,11 +363,19 @@ def main():
             tblogger = SummaryWriter(output_dir)
 
     for seq_idx in range(len(seq_start_end)):
-        # first frame for finetuning.        
+        # TODO: remove following.
+        if seq_idx!=10:
+            continue
+        db.set_to_sequence(seq_idx)
+        seq_name = db.get_current_seq_name()
+        cur_output_dir = osp.join(args.output_dir,seq_name)
+        if args.no_overwrite is True and osp.exists(osp.join(cur_output_dir,'results.pdf')):
+          continue
+        # first frame for finetuning.
         start_end = seq_start_end[seq_idx,:]
         roidbs = merged_roidb[start_end[0]:start_end[1]]
         # For every new seq, we reload the ckpt and reset optimizer.
-        db.set_to_sequence(seq_idx)
+        
         cfg.immutable(False)
         cfg.MODEL.NUM_CLASSES = db.instance_number_of_seq[seq_idx]+1
         maskRCNN = vos_model_builder.Generalized_VOS_RCNN()
@@ -397,7 +402,7 @@ def main():
                     args.disp_interval,
                     tblogger if args.use_tfboard and not args.no_save else None)
 
-                blobs, valid = get_minibatch(roidb, target_scale = cfg.TEST.SCALE)
+                blobs, valid = get_minibatch(roidb, target_scale = cfg.TRAIN.SCALES[npr.randint(0, len(cfg.TRAIN.SCALES))])
                 for key in blobs:
                     if key != 'roidb' and key != 'data_flow':
                         blobs[key] = blobs[key].squeeze(axis=0)
@@ -452,8 +457,20 @@ def main():
                         optimizer.zero_grad()
               
                         net_outputs = maskRCNN(**input_data)
-                        training_stats.UpdateIterStats(net_outputs)
+                        training_stats.UpdateIterStats(net_outputs)                        
                         loss = net_outputs['total_loss']
+                        # online training early stop criteria.
+                        stop_online_training = None
+                        if stop_online_training is None and (cfg.TRAIN.SC_CLS_LOSS_TH>0 or cfg.TRAIN.SC_BBOX_LOSS_TH>0 or cfg.TRAIN.SC_MASK_LOSS_TH):
+                            stop_online_training = True
+                        if cfg.TRAIN.SC_CLS_LOSS_TH>0 and net_outputs['losses']['loss_cls']>cfg.TRAIN.SC_CLS_LOSS_TH:                            
+                            stop_online_training = stop_online_training and False
+                        if cfg.TRAIN.SC_BBOX_LOSS_TH>0 and net_outputs['losses']['loss_bbox']>cfg.TRAIN.SC_BBOX_LOSS_TH:
+                            stop_online_training = stop_online_training and False
+                        if cfg.TRAIN.SC_MASK_LOSS_TH>0 and net_outputs['losses']['loss_mask']>cfg.TRAIN.SC_MASK_LOSS_TH:
+                            stop_online_training = stop_online_training and False
+                        if stop_online_training is True:
+                            break
                         loss.backward()
                         optimizer.step()
                         training_stats.IterToc()
@@ -463,7 +480,7 @@ def main():
                     #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
 
                 except (RuntimeError, KeyboardInterrupt):
-                    del dataiterator
+                    #del dataiterator
                     #logger.info('Save ckpt on exception ...')
                     #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
                     #logger.info('Save ckpt done.')
@@ -473,11 +490,10 @@ def main():
                 finally:
                     if args.use_tfboard and not args.no_save:
                         tblogger.close()
+                    # Clean hidden states as the hidden states are modified by multi-scale training.
+                    maskRCNN.module.clean_hidden_states()
                         
-            seq_name = db.get_current_seq_name()
-            cur_output_dir = osp.join(args.output_dir,seq_name)
-            if args.no_overwrite is True and osp.exists(osp.join(cur_output_dir,'results.pdf')):
-              continue
+            
             if not osp.isdir(cur_output_dir):
               os.makedirs(cur_output_dir)
               assert(cur_output_dir)
@@ -490,29 +506,34 @@ def main():
                 assert flo is not None
             timers = defaultdict(Timer)
             cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN, im, flo, timers=timers)
-            im_name = '%03d-%03d'%(seq_idx,idx)
-            print(osp.join(seq_name,im_name))
+            
+            im_name = '%05d'%(idx)
             cls_mapper = [0]+[db.local_id_to_global_id(i, seq_idx) for i in range(1, cfg.MODEL.NUM_CLASSES)]
+            clr_cvt = lambda x: db.cfg.palette[x][...,[2,1,0]]
+            thresh = 0.1
+            vis_utils.viz_mask_result(im, im_name, cur_output_dir, cls_boxes, segms=cls_segms, thresh=thresh,box_alpha=0.3, dataset=db, ext='png', clr_cvt = clr_cvt)
+            print(osp.join(seq_name,im_name))
+            im_name = '%03d-%03d'%(seq_idx,idx)
+            cur_output_pdf_dir = osp.join(cur_output_dir,'pdf')
             vis_utils.vis_one_image(
               im[:, :, ::-1],  # BGR -> RGB for visualization
               im_name,
-              cur_output_dir,
+              cur_output_pdf_dir,
               cls_boxes,
               cls_segms,
               cls_keyps,
               dataset=db,
               box_alpha=0.3,
               show_class=True,
-              thresh=0.7,
+              thresh=thresh,
               kp_thresh=2,
-              cls_mapper = cls_mapper
-            )
+              cls_mapper = cls_mapper)
 
         if args.merge_pdfs:
-            merge_out_path = '{}/results.pdf'.format(cur_output_dir)
+            merge_out_path = '{}/results.pdf'.format(cur_output_pdf_dir)
             if os.path.exists(merge_out_path):
                 os.remove(merge_out_path)
-            command = "pdfunite {}/*.pdf {}".format(cur_output_dir,
+            command = "pdfunite {}/*.pdf {}".format(cur_output_pdf_dir,
                                                     merge_out_path)
             subprocess.call(command, shell=True)
         #TODO remove break

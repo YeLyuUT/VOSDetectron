@@ -11,18 +11,18 @@ NUM_GPUS: 1
 SOLVER:
   WEIGHT_DECAY: 0.0001
   LR_POLICY: steps_with_decay
-  BASE_LR: 0.002
+  BASE_LR: 0.0003
   GAMMA: 0.1
-  WARM_UP_ITERS: 20
+  WARM_UP_ITERS: 50
   MAX_ITER: 500
-  STEPS: [0, 400, 450]
+#  STEPS: [0, 80]
 FPN:
   FPN_ON: True
   MULTILEVEL_ROIS: True
   MULTILEVEL_RPN: True
   USE_GN: True  # Note: use GN on the FPN-specific layers
   RPN_ANCHOR_START_SIZE: 32 # TODO can change to bigger value(such as 48 or 64). Default: 32 64 128 256 512
-  ROI_CANONICAL_SCALE: 224 # TODO can change to bigger value
+  ROI_CANONICAL_SCALE: 448 # TODO can change to bigger value
 RESNETS:
   IMAGENET_PRETRAINED_WEIGHTS: '../../data/pretrained_model/R-101-GN.pkl'
   STRIDE_1X1: False  # default True for MSRA; False for C2 or Torch models
@@ -37,9 +37,9 @@ FAST_RCNN:
   ROI_XFORM_SAMPLING_RATIO: 2
 MRCNN:
   ROI_MASK_HEAD: mask_rcnn_heads.mask_rcnn_fcn_head_v1up4convs_gn  # Note: this is a GN mask head
-  RESOLUTION: 28  # (output mask resolution) default 14
+  RESOLUTION: 56  # (output mask resolution) default 14
   ROI_XFORM_METHOD: RoIAlign
-  ROI_XFORM_RESOLUTION: 14  # default 7
+  ROI_XFORM_RESOLUTION: 28  # default 7
   ROI_XFORM_SAMPLING_RATIO: 2  # default 0
   DILATION: 2  # default 2
   CONV_INIT: MSRAFill  # default GaussianFill
@@ -49,19 +49,32 @@ CONVGRU:
 RPN:
   ASPECT_RATIOS: (0.2, 0.5, 1, 2, 5)
 TRAIN:
-  SCALES: (800,)
+  SCALES: (640, 608, 576, 544, 480, 416, 384, 352, 320)
   MAX_SIZE: 1333
   IMS_PER_BATCH: 1
-  BATCH_SIZE_PER_IM: 512
-  RPN_PRE_NMS_TOP_N: 2000  # Per FPN level
+  BATCH_SIZE_PER_IM: 256
+  RPN_PRE_NMS_TOP_N: 1000  # Per FPN level
   RPN_FG_FRACTION: 0.8 # Higher FG fraction for higher recall.
   USE_FLIPPED: False
-  FREEZE_CONV_BODY: True
+  FREEZE_CONV_BODY: False
   FREEZE_CONV_GRU: True
+  FREEZE_MASK: False
+  FREEZE_RPN: False
   SNAPSHOT_ITERS: 1500
+  LOSS_WEIGHT_CLS: 5.
+  LOSS_WEIGHT_BBOX: 1.
+  LOSS_WEIGHT_MASK: 5.
+  SC_CLS_LOSS_TH: 0.02
+  SC_BBOX_LOSS_TH: 0.02
+  SC_MASK_LOSS_TH: 0.035
 TEST:
-  SCALE: 800
+  SCALE: 480
   MAX_SIZE: 1333
   NMS: 0.5
   RPN_PRE_NMS_TOP_N: 1000  # Per FPN level
   RPN_POST_NMS_TOP_N: 1000
+  NUM_DET_PER_CLASS: 1
+  BBOX_VOTE:
+    ENABLED: False
+    VOTE_TH: 0.5
+    SCORING_METHOD: IOU_AVG

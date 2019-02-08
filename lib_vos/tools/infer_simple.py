@@ -5,6 +5,7 @@ from __future__ import print_function
 import argparse
 import distutils.util
 import os
+from os import path as osp
 import sys
 import pprint
 import subprocess
@@ -169,7 +170,7 @@ def main():
             dataset=dataset,
             box_alpha=0.3,
             show_class=True,
-            thresh=0.7,
+            thresh=0.5,
             kp_thresh=2
         )
 

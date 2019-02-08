@@ -159,6 +159,19 @@ class Generalized_VOS_RCNN(nn.Module):
             for i in range(len(self.ConvGRUs)):
                 for p in self.ConvGRUs[i].parameters():
                     p.requires_grad = False
+        if cfg.TRAIN.FREEZE_MASK:
+            for p in self.Mask_Outs.parameters():
+                p.requires_grad = False
+            for p in self.Mask_Head.parameters():
+                p.requires_grad = False
+        if cfg.TRAIN.FREEZE_RPN:
+            for p in self.RPN.parameters():
+                p.requires_grad = False
+        if cfg.TRAIN.FREEZE_FAST_RCNN:
+            for p in self.Box_Outs.parameters():
+                p.requires_grad = False
+            for p in self.Box_Head.parameters():
+                p.requires_grad = False
 
     def _create_hidden_state(self, idx, ref_blob):
         h_c = cfg.CONVGRU.HIDDEN_STATE_CHANNELS[idx]
@@ -185,6 +198,10 @@ class Generalized_VOS_RCNN(nn.Module):
     def clean_hidden_states(self):
         for i in range(len(self.hidden_states)):
             self.hidden_states[i] = None
+
+    def detach_hidden_states(self):
+        for i in range(len(self.hidden_states)):
+            self.hidden_states[i].detach_()
 
     def forward(self, data, im_info, roidb=None, data_flow = None, **rpn_kwargs):
         if cfg.PYTORCH_VERSION_LESS_THAN_040:

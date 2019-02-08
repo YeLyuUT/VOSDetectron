@@ -172,7 +172,7 @@ def load_ckpt(model, ckpt, no_load_mismatched_shape = True):
     print('load check point---following ckpt weights in model, but shape mismatch:',weights_shape_mismatch)
     model.load_state_dict(state_dict, strict=False)
     
-def load_ckpt_no_mapping(model,ckpt, no_load_mismatched_shape = True):
+def load_ckpt_no_mapping(model,ckpt, no_load_mismatched_shape = True, pred_out_specialized = True):
     """Load checkpoint"""
     state_dict = {}
     for name in ckpt:
@@ -183,11 +183,26 @@ def load_ckpt_no_mapping(model,ckpt, no_load_mismatched_shape = True):
     print('load check point---following ckpt weights not in model:',ckpt_weights_not_in_model)
     weights_in_both = set(model.state_dict().keys()).intersection(set(state_dict.keys()))
     weights_shape_mismatch = []
+    weights_specialized = []
     for w in weights_in_both:
-      if not state_dict[w].shape==model.state_dict()[w].shape:   
-          state_dict.pop(w)                       
-          weights_shape_mismatch.append(w)
+      if not state_dict[w].shape==model.state_dict()[w].shape:
+        if pred_out_specialized is True and w in ['Mask_Outs.classify.weight', 'Mask_Outs.classify.bias', 'Box_Outs.bbox_pred.weight', 'Box_Outs.bbox_pred.bias']:
+            if w=='Mask_Outs.classify.weight':
+                state_dict[w] = state_dict[w].repeat(model.state_dict()[w].shape[0], 1, 1, 1)
+            elif w=='Mask_Outs.classify.bias':
+                state_dict[w] = state_dict[w].repeat(model.state_dict()[w].shape[0])
+            elif w=='Box_Outs.bbox_pred.weight':
+                state_dict[w] = torch.cat((state_dict[w][:4,:], state_dict[w][4:,:].repeat(int(model.state_dict()[w].shape[0]/4)-1, 1)), 0)
+            elif w=='Box_Outs.bbox_pred.bias':
+                state_dict[w] = torch.cat((state_dict[w][:4], state_dict[w][4:].repeat(int(model.state_dict()[w].shape[0]/4)-1)), 0)
+            else:
+                raise ValueError('Impossible.')
+            weights_specialized.append(w)
+        else:
+            state_dict.pop(w)
+            weights_shape_mismatch.append(w)
     print('load check point---following ckpt weights in model, but shape mismatch:',weights_shape_mismatch)
+    print('load check point---following ckpt weights in model, but shape mismatch and specialzed:',weights_specialized)
     model.load_state_dict(state_dict, strict=False)
 
 def get_group_gn(dim):

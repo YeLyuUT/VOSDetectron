@@ -163,7 +163,6 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
     scores = return_dict['cls_score'].data.cpu().numpy().squeeze()
     # In case there is 1 proposal
     scores = scores.reshape([-1, scores.shape[-1]])
-
     if cfg.TEST.BBOX_REG:
         # Apply bounding-box regression deltas
         box_deltas = return_dict['bbox_pred'].data.cpu().numpy().squeeze()
@@ -188,7 +187,6 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
         # Map scores and predictions back to the original set of boxes
         scores = scores[inv_index, :]
         pred_boxes = pred_boxes[inv_index, :]
-       
     return scores, pred_boxes, im_scale, return_dict['blob_conv']
 
 

@@ -156,9 +156,6 @@ __C.TRAIN.CROWD_FILTER_THRESH = 0.7
 # Ignore ground-truth objects with area < this threshold
 __C.TRAIN.GT_MIN_AREA = -1
 
-# Freeze the backbone architecture during training if set to True
-__C.TRAIN.FREEZE_CONV_BODY = False
-
 
 # ---------------------------------------------------------------------------- #
 # Data loader options
@@ -932,10 +929,31 @@ __C.MODEL.IDENTITY_REPLACE_CLASS = True
 __C.MODEL.TOTAL_INSTANCE_NUM = 0
 __C.MODEL.LOAD_FLOW_FILE = False
 __C.MODEL.SEQUENCE_LENGTH = 1
-__C.TRAIN.FREEZE_CONV_GRU = False
-#Number of detection per class.
+# Warmup length.
+__C.TRAIN.SEQUENCE_WARMUP_LENGTH_RANGE = [0, 0]
+__C.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP = 0
+__C.TRAIN.WARMUP_LENGTH_CHANGE_STEP = 100
+# Number of detection per class.
 __C.TEST.NUM_DET_PER_CLASS = 0 
+__C.TEST.NMS_CROSS_CLASS = 0.
+# Training weights for losses.
+__C.TRAIN.LOSS_WEIGHT_CLS = 1.
+__C.TRAIN.LOSS_WEIGHT_BBOX = 1.
+__C.TRAIN.LOSS_WEIGHT_MASK = 1.
 
+# Online Training stop criteria.
+__C.TRAIN.SC_CLS_LOSS_TH = 0.
+__C.TRAIN.SC_BBOX_LOSS_TH = 0.
+__C.TRAIN.SC_MASK_LOSS_TH = 0.
+# ---------------------------------------------------------------------------- #
+# Freeze options
+# ---------------------------------------------------------------------------- #
+# Freeze the backbone architecture during training if set to True
+__C.TRAIN.FREEZE_CONV_BODY = False
+__C.TRAIN.FREEZE_CONV_GRU = False
+__C.TRAIN.FREEZE_FAST_RCNN = False
+__C.TRAIN.FREEZE_MASK = False
+__C.TRAIN.FREEZE_RPN = False
 # ---------------------------------------------------------------------------- #
 # GroupNorm options
 # ---------------------------------------------------------------------------- #

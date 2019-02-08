@@ -136,7 +136,6 @@ def _sample_rois(roidb, im_scale, batch_idx):
     rois_per_image = int(cfg.TRAIN.BATCH_SIZE_PER_IM)
     fg_rois_per_image = int(np.round(cfg.TRAIN.FG_FRACTION * rois_per_image))
     max_overlaps = roidb['max_overlaps']
-
     # Select foreground RoIs as those with >= FG_THRESH overlap
     fg_inds = np.where(max_overlaps >= cfg.TRAIN.FG_THRESH)[0]
     # Guard against the case when an image has fewer than fg_rois_per_image

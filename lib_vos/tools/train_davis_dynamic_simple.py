@@ -10,6 +10,7 @@ import logging
 from collections import defaultdict
 
 import numpy as np
+from numpy import random as npr
 import yaml
 import torch
 from torch.autograd import Variable
@@ -146,6 +147,30 @@ def save_ckpt(output_dir, args, step, train_size, model, optimizer):
         'optimizer': optimizer.state_dict()}, save_name)
     logger.info('save model: %s', save_name)
 
+def gen_sequence_data_sampler(merged_roidb, seq_num, seq_start_end, use_seq_warmup = False):
+    if use_seq_warmup:
+        warmup_length = npr.randint(
+            low = cfg.TRAIN.SEQUENCE_WARMUP_LENGTH_RANGE[0],
+            high = cfg.TRAIN.SEQUENCE_WARMUP_LENGTH_RANGE[1],
+            size = 1)
+    else:
+        warmup_length = 0
+    batchSampler = BatchSampler(
+        sampler=MinibatchSampler(seq_num, seq_start_end),
+        batch_size=cfg.MODEL.SEQUENCE_LENGTH+warmup_length,
+        drop_last=True
+        )
+    dataset = RoiDataLoader(
+        merged_roidb,
+        cfg.MODEL.NUM_CLASSES,
+        training=True)
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_sampler=batchSampler,
+        num_workers=cfg.DATA_LOADER.NUM_THREADS,
+        collate_fn=collate_minibatch)
+    dataiterator = iter(dataloader)
+    return dataloader, dataiterator, warmup_length
 
 def main():
     """Main function"""
@@ -256,21 +281,6 @@ def main():
 
     # Effective training sample size for one epoch, number of sequences.
     train_size = roidb_size // args.batch_size * args.batch_size
-    batchSampler = BatchSampler(
-        sampler=MinibatchSampler(seq_num, seq_start_end),
-        batch_size=cfg.MODEL.SEQUENCE_LENGTH,
-        drop_last=True
-    )
-    dataset = RoiDataLoader(
-        merged_roidb,
-        cfg.MODEL.NUM_CLASSES,
-        training=False)#TODO change to True
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_sampler=batchSampler,
-        num_workers=cfg.DATA_LOADER.NUM_THREADS,
-        collate_fn=collate_minibatch)
-    dataiterator = iter(dataloader)
 
     ### Model ###
     maskRCNN = vos_model_builder.Generalized_VOS_RCNN()
@@ -397,8 +407,8 @@ def main():
     try:
         logger.info('Training starts !')
         step = args.start_step
-        for step in range(args.start_step, cfg.SOLVER.MAX_ITER):
-
+        dataloader, dataiterator, warmup_length = gen_sequence_data_sampler(merged_roidb, seq_num, seq_start_end, use_seq_warmup=False)
+        for step in range(args.start_step, cfg.SOLVER.MAX_ITER):            
             # Warm up
             if step < cfg.SOLVER.WARM_UP_ITERS:
                 method = cfg.SOLVER.WARM_UP_METHOD
@@ -430,6 +440,11 @@ def main():
 
             training_stats.IterTic()
             optimizer.zero_grad()
+            
+            if cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP>0 and\
+            step>cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP and\
+            (step-cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP-1)%cfg.TRAIN.WARMUP_LENGTH_CHANGE_STEP==0:
+                dataloader, dataiterator, warmup_length = gen_sequence_data_sampler(use_seq_warmup=True)
             try:
                 input_data_sequence = next(dataiterator)
             except StopIteration:
@@ -437,7 +452,7 @@ def main():
                 input_data_sequence = next(dataiterator)
             
             maskRCNN.module.clean_hidden_states()
-            for inner_iter in range(cfg.MODEL.SEQUENCE_LENGTH):
+            for inner_iter in range(cfg.MODEL.SEQUENCE_LENGTH+warmup_length):
                 #get input_data
                 input_data = {}
                 for key in input_data_sequence.keys():
@@ -453,9 +468,12 @@ def main():
                             input_data[key] = [None]
 
                 net_outputs = maskRCNN(**input_data)
+                if inner_iter < warmup_length:
+                    maskRCNN.module.detach_hidden_states()
+                    continue
                 training_stats.UpdateIterStats(net_outputs, inner_iter)
                 loss = net_outputs['total_loss']
-                if inner_iter == cfg.MODEL.SEQUENCE_LENGTH-1:
+                if inner_iter == cfg.MODEL.SEQUENCE_LENGTH+warmup_length-1:
                     loss.backward()
                 else:
                     loss.backward(retain_graph=True)
