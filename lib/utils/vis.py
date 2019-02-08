@@ -116,13 +116,13 @@ def save_img_fig(im, im_name, output_dir,ext,dpi):
     fig.savefig(os.path.join(output_dir, '{}'.format(output_name)), dpi=dpi)
     plt.close('all')
 
-def get_mask_result_binary(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
-        box_alpha=0.0, dataset=None, ext='png'):
+def viz_mask_result(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
+        box_alpha=0.0, dataset=None, ext='png', clr_cvt = None):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if isinstance(boxes, list):
         boxes, segms, keypoints, classes = convert_from_cls_format(
-            boxes, segms, keypoints)
+            boxes, segms, None)
     if segms is not None:
         masks = mask_util.decode(segms)
 
@@ -137,18 +137,15 @@ def get_mask_result_binary(im, im_name, output_dir, boxes, segms=None, thresh=0.
         if score < thresh:
             continue
 
-        print(dataset.classes[classes[i]], score)
         # show mask
         if segms is not None and len(segms) > i:
             color = classes[i]
             outImg[masks[:, :, i]>0] = color
+    if clr_cvt is not None:
+        outImg = clr_cvt(outImg)
+    output_name = os.path.basename(im_name) + '.' + ext
+    cv2.imwrite(os.path.join(output_dir, '{}'.format(output_name)), outImg)
     return outImg
-
-def get_mask_result_color():
-    pass
-
-def binary_result_to_color_result():
-    pass
 
 def vis_one_image(
         im, im_name, output_dir, boxes, segms=None, keypoints=None, thresh=0.9,
@@ -236,7 +233,7 @@ def vis_one_image(
                 polygon = Polygon(
                     c.reshape((-1, 2)),
                     fill=True, facecolor=color_mask,
-                    edgecolor='w', linewidth=1.2,
+                    edgecolor='w', linewidth=1.0,
                     alpha=0.5)
                 ax.add_patch(polygon)
 
