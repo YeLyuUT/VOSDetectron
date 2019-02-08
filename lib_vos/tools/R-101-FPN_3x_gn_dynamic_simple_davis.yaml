@@ -21,8 +21,8 @@ FPN:
   MULTILEVEL_ROIS: True
   MULTILEVEL_RPN: True
   USE_GN: True  # Note: use GN on the FPN-specific layers
-  RPN_ANCHOR_START_SIZE: 32 # TODO can change to bigger value(such as 48 or 64). Default: 32 64 128 256 512
-  ROI_CANONICAL_SCALE: 448 # TODO can change to bigger value
+  RPN_ANCHOR_START_SIZE: 32 # TODO can change to bigger value(such as 48 or 64). Default: 32 64 128 256 512 1024
+  ROI_CANONICAL_SCALE: 224 # TODO can change to bigger value
 RESNETS:
   IMAGENET_PRETRAINED_WEIGHTS: '../../data/pretrained_model/R-101-GN.pkl'
   STRIDE_1X1: False  # default True for MSRA; False for C2 or Torch models
@@ -49,7 +49,7 @@ CONVGRU:
 RPN:
   ASPECT_RATIOS: (0.2, 0.5, 1, 2, 5)
 TRAIN:
-  SCALES: (640, 608, 576, 544, 480, 416, 384, 352, 320)
+  SCALES: (640, 608, 576, 544, 512, 480, 448, 416, 384, 352, 320)
   MAX_SIZE: 1333
   IMS_PER_BATCH: 1
   BATCH_SIZE_PER_IM: 128
@@ -57,8 +57,11 @@ TRAIN:
   RPN_POST_NMS_TOP_N: 512
   RPN_FG_FRACTION: 0.8 # Higher FG fraction for higher recall.
   USE_FLIPPED: False
-  FREEZE_CONV_BODY: True
+  FREEZE_CONV_BODY: False
   SNAPSHOT_ITERS: 3000
+  SEQUENCE_WARMUP_LENGTH_RANGE: [0, 10]
+  ITER_BEFORE_USE_SEQ_WARMUP: 0
+  WARMUP_LENGTH_CHANGE_STEP: 180
 TEST:
   SCALE: 480
   MAX_SIZE: 1333
