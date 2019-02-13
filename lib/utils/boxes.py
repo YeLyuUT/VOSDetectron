@@ -57,8 +57,8 @@ bbox_overlaps = cython_bbox.bbox_overlaps
 
 def boxes_area(boxes):
     """Compute the area of an array of boxes."""
-    w = (boxes[:, 2] - boxes[:, 0])# + 1)
-    h = (boxes[:, 3] - boxes[:, 1])# + 1)
+    w = (boxes[:, 2] - boxes[:, 0] + 1)
+    h = (boxes[:, 3] - boxes[:, 1] + 1)
     areas = w * h
 
     neg_area_idx = np.where(areas < 0)[0]
@@ -83,13 +83,13 @@ def xywh_to_xyxy(xywh):
         # Single box given as a list of coordinates
         assert len(xywh) == 4
         x1, y1 = xywh[0], xywh[1]
-        x2 = x1 + np.maximum(0., xywh[2])# - 1.)
-        y2 = y1 + np.maximum(0., xywh[3])# - 1.)
+        x2 = x1 + np.maximum(0., xywh[2] - 1.)
+        y2 = y1 + np.maximum(0., xywh[3] - 1.)
         return (x1, y1, x2, y2)
     elif isinstance(xywh, np.ndarray):
         # Multiple boxes given as a 2D ndarray
         return np.hstack(
-            (xywh[:, 0:2], xywh[:, 0:2] + np.maximum(0, xywh[:, 2:4]))# - 1))
+            (xywh[:, 0:2], xywh[:, 0:2] + np.maximum(0, xywh[:, 2:4] - 1))
         )
     else:
         raise TypeError('Argument xywh must be a list, tuple, or numpy array.')
@@ -101,20 +101,20 @@ def xyxy_to_xywh(xyxy):
         # Single box given as a list of coordinates
         assert len(xyxy) == 4
         x1, y1 = xyxy[0], xyxy[1]
-        w = xyxy[2] - x1# + 1
-        h = xyxy[3] - y1# + 1
+        w = xyxy[2] - x1 + 1
+        h = xyxy[3] - y1 + 1
         return (x1, y1, w, h)
     elif isinstance(xyxy, np.ndarray):
         # Multiple boxes given as a 2D ndarray
-        return np.hstack((xyxy[:, 0:2], xyxy[:, 2:4] - xyxy[:, 0:2]))# + 1))
+        return np.hstack((xyxy[:, 0:2], xyxy[:, 2:4] - xyxy[:, 0:2] + 1))
     else:
         raise TypeError('Argument xyxy must be a list, tuple, or numpy array.')
 
 
 def filter_small_boxes(boxes, min_size):
     """Keep boxes with width and height both greater than min_size."""
-    w = boxes[:, 2] - boxes[:, 0]# + 1
-    h = boxes[:, 3] - boxes[:, 1]# + 1
+    w = boxes[:, 2] - boxes[:, 0] + 1
+    h = boxes[:, 3] - boxes[:, 1] + 1
     keep = np.where((w > min_size) & (h > min_size))[0]
     return keep
 
@@ -163,9 +163,8 @@ def bbox_transform(boxes, deltas, weights=(1.0, 1.0, 1.0, 1.0)):
 
     boxes = boxes.astype(deltas.dtype, copy=False)
 
-    widths = boxes[:, 2] - boxes[:, 0]# + 1.0
-    heights = boxes[:, 3] - boxes[:, 1]# + 1.0
-
+    widths = boxes[:, 2] - boxes[:, 0] + 1.0
+    heights = boxes[:, 3] - boxes[:, 1] + 1.0
     ctr_x = boxes[:, 0] + 0.5 * widths
     ctr_y = boxes[:, 1] + 0.5 * heights
 
@@ -176,13 +175,22 @@ def bbox_transform(boxes, deltas, weights=(1.0, 1.0, 1.0, 1.0)):
     dh = deltas[:, 3::4] / wh
 
     # Prevent sending too large values into np.exp()
-    dw = np.minimum(dw, cfg.BBOX_XFORM_CLIP)
-    dh = np.minimum(dh, cfg.BBOX_XFORM_CLIP)
+    try:
+        np.seterr(all='raise')
+        dw = np.minimum(dw, cfg.BBOX_XFORM_CLIP)
+        dh = np.minimum(dh, cfg.BBOX_XFORM_CLIP)
+    except:
+        print(deltas)
+        raise
 
     pred_ctr_x = dx * widths[:, np.newaxis] + ctr_x[:, np.newaxis]
     pred_ctr_y = dy * heights[:, np.newaxis] + ctr_y[:, np.newaxis]
     pred_w = np.exp(dw) * widths[:, np.newaxis]
     pred_h = np.exp(dh) * heights[:, np.newaxis]
+
+    # Prevent sending too small values to pred box.
+    pred_w = np.maximum(pred_w, 1.0)
+    pred_h = np.maximum(pred_h, 1.0)
 
     pred_boxes = np.zeros(deltas.shape, dtype=deltas.dtype)
     # x1
@@ -190,9 +198,9 @@ def bbox_transform(boxes, deltas, weights=(1.0, 1.0, 1.0, 1.0)):
     # y1
     pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h
     # x2 (note: "- 1" is correct; don't be fooled by the asymmetry)
-    pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w# - 1
+    pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w - 1
     # y2 (note: "- 1" is correct; don't be fooled by the asymmetry)
-    pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h# - 1
+    pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h - 1
 
     return pred_boxes
 
@@ -210,20 +218,19 @@ def bbox_transform_inv(boxes, gt_boxes, weights=(1.0, 1.0, 1.0, 1.0)):
     approximately the weights one would get from COCO using the previous unit
     stdev heuristic.
     """
-    ex_widths = boxes[:, 2] - boxes[:, 0] + 1e-7# + 1.0
-    ex_heights = boxes[:, 3] - boxes[:, 1] + 1e-7# + 1.0
+    ex_widths = boxes[:, 2] - boxes[:, 0] + 1.0
+    ex_heights = boxes[:, 3] - boxes[:, 1] + 1.0
     ex_ctr_x = boxes[:, 0] + 0.5 * ex_widths
     ex_ctr_y = boxes[:, 1] + 0.5 * ex_heights
 
-    gt_widths = gt_boxes[:, 2] - gt_boxes[:, 0]# + 1.0
-    gt_heights = gt_boxes[:, 3] - gt_boxes[:, 1]# + 1.0
+    gt_widths = gt_boxes[:, 2] - gt_boxes[:, 0] + 1.0
+    gt_heights = gt_boxes[:, 3] - gt_boxes[:, 1] + 1.0
     gt_ctr_x = gt_boxes[:, 0] + 0.5 * gt_widths
     gt_ctr_y = gt_boxes[:, 1] + 0.5 * gt_heights
 
     wx, wy, ww, wh = weights
     targets_dx = wx * (gt_ctr_x - ex_ctr_x) / ex_widths
     targets_dy = wy * (gt_ctr_y - ex_ctr_y) / ex_heights
-
     targets_dw = ww * np.log(gt_widths / ex_widths)
     targets_dh = wh * np.log(gt_heights / ex_heights)
 
