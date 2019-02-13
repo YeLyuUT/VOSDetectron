@@ -11,13 +11,13 @@ python infer_simple.py --dataset 'coco2017' --cfg './R-101-FPN_3x_gn_static_coco
 python ./predict_davis.py --dataset [coco2017][davis2017] --cfg ./R-101-FPN_3x_gn_static_coco.yaml --load_ckpt './Outputs/R-101-FPN_3x_gn_static_training/Jan18-00-57-23_UT143397_step/ckpt/model_step269999.pth' --output_dir './Output/static_coco'
 
 #train dynamic VOS MRCNN model
-python ./train_davis_dynamic_simple.py --dataset davis2017 --cfg ./R-101-FPN_3x_gn_dynamic_simple_davis.yaml --load_ckpt './Outputs/R-101-FPN_3x_gn_static_coco/Feb05-17-19-39_UT143397_step/ckpt/model_step219999.pth' --disp_interval 10 --nw 8 --o SGD --use_tfboard
+python ./train_davis_dynamic_simple.py --dataset davis2017 --cfg ./R-101-FPN_3x_gn_dynamic_simple_davis.yaml --load_ckpt './Outputs/R-101-FPN_3x_gn_static_coco/saved/coco_cls_agnostic/ckpt/model_step269999.pth' --disp_interval 10 --nw 8 --o SGD --use_tfboard
 
 #predict dynamic VOS MRCNN model
 python ./infer_davis_sequential.py --dataset davis2017 --cfg ./R-101-FPN_3x_gn_dynamic_simple_davis.yaml --load_ckpt './Outputs/R-101-FPN_3x_gn_dynamic_simple_davis/Jan30-14-40-45_UT143397_step/ckpt/model_step5999.pth' --output_dir './Output/dynamic_davis'
 
 #online training and prediction for VOS MRCNN model
-python ./train_davis_online.py --dataset davis2017 --cfg ./R-101-FPN_3x_gn_train_online.yaml --load_ckpt './Outputs/R-101-FPN_3x_gn_dynamic_simple_davis/Jan30-14-40-45_UT143397_step/ckpt/model_step5999.pth' --disp_interval 50 --nw 8 --o SGD --use_tfboard --output_dir './Output/online_dynamic_davis'
+python ./train_davis_online.py --dataset davis2017 --cfg ./R-101-FPN_3x_gn_train_online.yaml --load_ckpt './Outputs/R-101-FPN_3x_gn_dynamic_simple_davis/Jan30-14-40-45_UT143397_step/ckpt/model_step5999.pth' --disp_interval 50 --nw 8 --o SGD --output_dir './Output/online_dynamic_davis'
 
 #Unused.
 #predict for boxes
