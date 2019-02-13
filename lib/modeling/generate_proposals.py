@@ -6,6 +6,7 @@ from torch import nn
 from core.config import cfg
 import utils.boxes as box_utils
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,6 +59,8 @@ class GenerateProposalsOp(nn.Module):
         scores = rpn_cls_prob.data.cpu().numpy()
         # predicted achors transformations
         bbox_deltas = rpn_bbox_pred.data.cpu().numpy()
+        if np.any(np.isnan(bbox_deltas)):
+            raise ValueError('bbox_deltas nan')
         # input image (height, width, scale), in which scale is the scale factor
         # applied to the original dataset image to get the network input image
         im_info = im_info.data.cpu().numpy()
@@ -89,9 +92,7 @@ class GenerateProposalsOp(nn.Module):
         rois = np.empty((0, 5), dtype=np.float32)
         roi_probs = np.empty((0, 1), dtype=np.float32)
         for im_i in range(num_images):
-            im_i_boxes, im_i_probs = self.proposals_for_one_image(
-                im_info[im_i, :], all_anchors, bbox_deltas[im_i, :, :, :],
-                scores[im_i, :, :, :])
+            im_i_boxes, im_i_probs = self.proposals_for_one_image(im_info[im_i, :], all_anchors, bbox_deltas[im_i, :, :, :],scores[im_i, :, :, :])
             batch_inds = im_i * np.ones(
                 (im_i_boxes.shape[0], 1), dtype=np.float32)
             im_i_rois = np.hstack((batch_inds, im_i_boxes))
@@ -141,8 +142,7 @@ class GenerateProposalsOp(nn.Module):
         scores = scores[order]
 
         # Transform anchors into proposals via bbox transformations
-        proposals = box_utils.bbox_transform(all_anchors, bbox_deltas,
-                                             (1.0, 1.0, 1.0, 1.0))
+        proposals = box_utils.bbox_transform(all_anchors, bbox_deltas, (1.0, 1.0, 1.0, 1.0))
 
         # 2. clip proposals to image (may result in proposals with zero area
         # that will be removed in the next step)
