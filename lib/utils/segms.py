@@ -124,6 +124,21 @@ def round_to_int_box(box):
     new_box[idx] = int(box[idx]+0.5)
   return new_box
 
+def rectify_box_for_crop(box):
+  if box[2]-box[0]<1.0:
+    if box[0] == 0:
+      box[2] = 1.0
+    else:
+      box[0] = box[2]-1.0
+
+  if box[3]-box[1]<1.0:
+    if box[1] == 0:
+      box[3] = 1.0
+    else:
+      box[1] = box[3]-1.0
+
+  return box
+
 def polys_to_mask_wrt_box(polygons, box, M):
   """Convert from the COCO polygon segmentation format to a binary mask
     encoded as a 2D array of data type numpy.float32. The polygon segmentation
@@ -134,7 +149,8 @@ def polys_to_mask_wrt_box(polygons, box, M):
   if isinstance(polygons, dict):
       dsize = (M,M)
       mask = rle_to_mask(polygons)
-      mask = np.array(PIL.Image.fromarray(mask).crop(box))
+      box = rectify_box_for_crop(box)
+      mask = np.array(PIL.Image.fromarray(mask).crop(box)).astype(np.float32)
       mask = cv2.resize(mask, dsize = dsize,interpolation = cv2.INTER_LINEAR)
       mask = np.array(mask > 0.5, dtype=np.float32)
       
