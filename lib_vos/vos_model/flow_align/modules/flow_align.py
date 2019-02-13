@@ -10,7 +10,7 @@ class FlowAlign(nn.Module):
     self.conv_flow_downsample = self._flow_downsample_convolutional_layer(spatial_scale)
 
   def _flow_downsample_convolutional_layer(self,spatial_scale):
-    assert(spatial_scale<=1.0 and spatial_scale in [1.0,0.5,0.25,0.125,0.0625,0.03125])
+    assert(spatial_scale<=1.0 and spatial_scale in [1.0,0.5,0.25,0.125,0.0625,0.03125,1./64.])
     inv_scale = int(1.0/spatial_scale)
     kernel_size = inv_scale
     stride = inv_scale
@@ -31,4 +31,4 @@ class FlowAlign(nn.Module):
       _flows = self.conv_flow_downsample(flows)
     else:
       _flows = flows
-    return FlowAlignFunction()(features, _flows)
+    return FlowAlignFunction.apply(features, _flows)
