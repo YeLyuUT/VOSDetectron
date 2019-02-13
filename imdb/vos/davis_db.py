@@ -42,7 +42,8 @@ import pycocotools.mask as mask_util
 
 splits = ['train','val','trainval','test-dev']
 
-
+def image_saver(filename, array):
+  return io.imwrite_indexed(filename, array)
 
 class DAVIS_imdb(vos_imdb):
   def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False, load_inv_db=False):
@@ -630,6 +631,9 @@ class DAVIS_imdb(vos_imdb):
     self.debug_timer.tic()
     for seq_idx in range(self.get_num_sequence()):
       roidbs.append(self.get_roidb_from_seq_idx_sequence(seq_idx, proposal_file = None))
+      #TODO remove.
+      #if seq_idx==3:
+        #return roidbs
     if self.load_inv_db is True:
       for seq_idx in range(self.get_num_sequence()):
         roidbs.append(self.get_roidb_from_seq_idx_sequence_inv(seq_idx, proposal_file = None))
