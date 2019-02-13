@@ -42,6 +42,7 @@ from utils.detectron_weight_helper import load_detectron_weight
 from utils.logging import setup_logging
 from utils.timer import Timer
 from utils.training_stats import TrainingStats
+from copy import copy
 #from vos_model.flow_align.functions.flow_align import FlowAlignFunction
 # Set up logging and load config options
 logger = setup_logging(__name__)
@@ -49,7 +50,7 @@ logging.getLogger('roi_data.loader').setLevel(logging.INFO)
 
 # RuntimeError: received 0 items of ancdata. Issue: pytorch/pytorch#973
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
+resource.setrlimit(resource.RLIMIT_NOFILE, (4096*20, rlimit[1]))
 
 def parse_args():
     """Parse input arguments"""
@@ -149,16 +150,19 @@ def save_ckpt(output_dir, args, step, train_size, model, optimizer):
 
 def gen_sequence_data_sampler(merged_roidb, seq_num, seq_start_end, use_seq_warmup = False):
     if use_seq_warmup:
-        warmup_length = npr.randint(
+        warmup_length = int(npr.randint(
             low = cfg.TRAIN.SEQUENCE_WARMUP_LENGTH_RANGE[0],
             high = cfg.TRAIN.SEQUENCE_WARMUP_LENGTH_RANGE[1],
-            size = 1)
+            size = 1)[0])
     else:
         warmup_length = 0
+    dataloader = None 
+    dataiterator = None
+    batch_size = cfg.MODEL.SEQUENCE_LENGTH+warmup_length
     batchSampler = BatchSampler(
-        sampler=MinibatchSampler(seq_num, seq_start_end),
-        batch_size=cfg.MODEL.SEQUENCE_LENGTH+warmup_length,
-        drop_last=True
+        sampler=MinibatchSampler(seq_num, seq_start_end, batch_size = batch_size),
+        batch_size=batch_size,
+        drop_last=False
         )
     dataset = RoiDataLoader(
         merged_roidb,
@@ -231,7 +235,8 @@ def main():
     # on batch_size instead of effective_batch_size
     old_base_lr = cfg.SOLVER.BASE_LR
     cfg.SOLVER.BASE_LR *= args.batch_size / original_batch_size
-    print('Adjust BASE_LR linearly according to batch_size change:\n'
+    cfg.SOLVER.BASE_LR *= 1.0/cfg.MODEL.SEQUENCE_LENGTH
+    print('Adjust BASE_LR linearly according to batch_size change and sequence length change:\n'
           '    BASE_LR: {} --> {}'.format(old_base_lr, cfg.SOLVER.BASE_LR))
 
     ### Adjust solver steps
@@ -404,10 +409,10 @@ def main():
         args,
         args.disp_interval,
         tblogger if args.use_tfboard and not args.no_save else None)
+    dataloader, dataiterator, warmup_length = gen_sequence_data_sampler(merged_roidb, seq_num, seq_start_end, use_seq_warmup=False)
     try:
         logger.info('Training starts !')
         step = args.start_step
-        dataloader, dataiterator, warmup_length = gen_sequence_data_sampler(merged_roidb, seq_num, seq_start_end, use_seq_warmup=False)
         for step in range(args.start_step, cfg.SOLVER.MAX_ITER):            
             # Warm up
             if step < cfg.SOLVER.WARM_UP_ITERS:
@@ -441,17 +446,28 @@ def main():
             training_stats.IterTic()
             optimizer.zero_grad()
             
-            if cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP>0 and\
-            step>cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP and\
-            (step-cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP-1)%cfg.TRAIN.WARMUP_LENGTH_CHANGE_STEP==0:
-                dataloader, dataiterator, warmup_length = gen_sequence_data_sampler(use_seq_warmup=True)
+            if cfg.TRAIN.USE_SEQ_WARMUP is True and step>=cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP and ((step-cfg.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP)%cfg.TRAIN.WARMUP_LENGTH_CHANGE_STEP)==0:                                
+                #TODO better dataiterator creator.
+                raise NotImplementedError('not able to delete.')
+                dataloader, dataiterator, warmup_length = gen_sequence_data_sampler(merged_roidb, seq_num, seq_start_end, use_seq_warmup=True)
+                print('update warmup length:', warmup_length)
             try:
                 input_data_sequence = next(dataiterator)
             except StopIteration:
                 dataiterator = iter(dataloader)
                 input_data_sequence = next(dataiterator)
             
+            # clean hidden states before training.
             maskRCNN.module.clean_hidden_states()
+            maskRCNN.module.clean_flow_features()
+            if cfg.TRAIN.ALTERNATE_TRAINING:
+                saved_input_data = []
+                saved_hidden_states = None
+
+            assert len(input_data_sequence['data']) == cfg.MODEL.SEQUENCE_LENGTH+warmup_length, print(len(input_data_sequence['data']), '!=' ,cfg.MODEL.SEQUENCE_LENGTH+warmup_length)
+            # this is used for longer sequence training.
+            # when reach maximum trainable length, detach the hidden states.
+            cnter_for_detach_hidden_states = 0
             for inner_iter in range(cfg.MODEL.SEQUENCE_LENGTH+warmup_length):
                 #get input_data
                 input_data = {}
@@ -466,21 +482,50 @@ def main():
                             assert input_data['data'][0].shape[-2:]==input_data[key][0].shape[-2:], "Spatial shape of image and flow are not equal."
                         else:
                             input_data[key] = [None]
+                if cfg.TRAIN.USE_SEQ_WARMUP and inner_iter < warmup_length:
+                    maskRCNN.module.set_stop_after_hidden_states(stop=True)
+                    net_outputs = maskRCNN(**input_data)
+                    assert net_outputs is None
+                    maskRCNN.module.detach_hidden_states()
+                    maskRCNN.module.set_stop_after_hidden_states(stop=False)
+                    continue
+ 
+                #save input_data for alternative training.
+                if cfg.TRAIN.ALTERNATE_TRAINING:
+                    saved_hidden_states = maskRCNN.module.clone_detach_hidden_states()
+                    saved_input_data.append(copy(input_data))
 
                 net_outputs = maskRCNN(**input_data)
-                if inner_iter < warmup_length:
-                    maskRCNN.module.detach_hidden_states()
-                    continue
                 training_stats.UpdateIterStats(net_outputs, inner_iter)
                 loss = net_outputs['total_loss']
-                if inner_iter == cfg.MODEL.SEQUENCE_LENGTH+warmup_length-1:
+
+                if  cnter_for_detach_hidden_states>= cfg.TRAIN.MAX_TRAINABLE_SEQ_LENGTH or inner_iter == cfg.MODEL.SEQUENCE_LENGTH+warmup_length-1:
+                    # if reach the max trainable length or end of the sequence. free the graph and detach the hidden states.
                     loss.backward()
+                    maskRCNN.module.detach_hidden_states()
+                    cnter_for_detach_hidden_states = 0                    
                 else:
                     loss.backward(retain_graph=True)
-            
+                    cnter_for_detach_hidden_states+=1
             optimizer.step()
-            training_stats.IterToc()
+            optimizer.zero_grad()
+            # Train the backbone only.
+            if cfg.TRAIN.ALTERNATE_TRAINING and len(saved_input_data)>0:
+                maskRCNN.module.train_conv_body_only()
+                maskRCNN.module.set_hidden_states(saved_hidden_states)
+                for input_data in saved_input_data:
+                    maskRCNN.module.detach_hidden_states()
+                    net_outputs = maskRCNN(**input_data)
+                    training_stats.UpdateIterStats(net_outputs, inner_iter)
+                    loss = net_outputs['total_loss']                    
+                    loss.backward()
+                maskRCNN.module.freeze_conv_body_only()
+                saved_input_data = []
+                saved_hidden_states = None
 
+            optimizer.step()
+            optimizer.zero_grad()
+            training_stats.IterToc()
             training_stats.LogIterStats(step, lr)
             
             if (step+1) % CHECKPOINT_PERIOD == 0:

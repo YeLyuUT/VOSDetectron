@@ -48,11 +48,12 @@ class RoiDataLoader(data.Dataset):
 
 
 class MinibatchSampler(torch_sampler.Sampler):
-    def __init__(self, seq_num, seq_start_end, training = True):
+    def __init__(self, seq_num, seq_start_end, batch_size = cfg.MODEL.SEQUENCE_LENGTH, training = True):
         self.seq_num = seq_num
         self.seq_start_end = seq_start_end
         self.num_data = seq_num
         self.training = training
+        self.batch_size = batch_size
 
     def __iter__(self):
         if self.training is True:
@@ -71,18 +72,25 @@ class MinibatchSampler(torch_sampler.Sampler):
             cur_se = shuffled_seq_start_end[idx,:]
             assert(cur_se[1] > cur_se[0])
             length = cur_se[1] - cur_se[0]
-            if length<cfg.MODEL.SEQUENCE_LENGTH:
-                raise ValueError('length of the sequence is shorter than cfg.MODEL.SEQUENCE_LENGTH.')
+            if length<self.batch_size:
+                #raise ValueError('length of the sequence is shorter than self.batch_size.')
+                #print(self.batch_size,'>',length)
+                #raise ValueError('length of the sequence is shorter than self.batch_size, please modify batch_size to fit sequence length.')
+                print('length of the sequence is shorter than self.batch_size, please modify batch_size to fit sequence length.')
+                batch_size = length
             else:
-                if self.training is True:
-                    id_start = randi(0, length-cfg.MODEL.SEQUENCE_LENGTH)+int(cur_se[0])
-                    id_end = id_start+cfg.MODEL.SEQUENCE_LENGTH
-                else:
-                    id_start = 0
-                    id_end = length
-                idx_list.extend(list(range(id_start, id_end)))
-                scale_list.extend([cfg.TRAIN.SCALES[scale_inds[idx]]]*(id_end-id_start))
-        assert len(idx_list)==len(scale_list)
+                batch_size = self.batch_size
+            if self.training is True:
+                id_start = randi(0, length-batch_size)+int(cur_se[0])
+                id_end = id_start+batch_size
+            else:
+                id_start = 0
+                id_end = length
+            assert id_start>=int(cur_se[0]) and id_end<=int(cur_se[1]), print(id_start, id_end, cur_se[:])
+            idx_list.extend([id_start]*(self.batch_size-batch_size)+list(range(id_start, id_end)))
+            scale_list.extend([cfg.TRAIN.SCALES[scale_inds[idx]]]*(self.batch_size))
+        assert len(idx_list)==len(scale_list), print(len(idx_list), len(scale_list))
+        assert len(idx_list)==self.batch_size*self.seq_num, print(len(idx_list), self.batch_size*self.seq_num)
         return iter(zip(idx_list, scale_list))
 
     def __len__(self):
@@ -115,7 +123,7 @@ class BatchSampler(torch_sampler.BatchSampler):
         if not isinstance(drop_last, bool):
             raise ValueError("drop_last should be a boolean value, but got "
                              "drop_last={}".format(drop_last))
-        assert(cfg.MODEL.SEQUENCE_LENGTH == batch_size)
+        #assert(cfg.MODEL.SEQUENCE_LENGTH == batch_size)
         self.sampler = sampler
         self.batch_size = batch_size
         self.drop_last = drop_last
@@ -146,14 +154,16 @@ def collate_minibatch(list_of_blobs):
     # Because roidb consists of entries of variable length, it can't be batch into a tensor.
     # So we keep roidb in the type of "list of ndarray".
     list_of_roidb = [blobs.pop('roidb') for blobs in list_of_blobs]
-    list_of_flows = [blobs.pop('data_flow', None) for blobs in list_of_blobs]
+    if cfg.MODEL.LOAD_FLOW_FILE:
+        list_of_flows = [blobs.pop('data_flow', None) for blobs in list_of_blobs]
     for i in range(0, len(list_of_blobs), cfg.TRAIN.IMS_PER_BATCH):
         mini_list = list_of_blobs[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
         # Pad image data
         mini_list = pad_image_data(mini_list)
         minibatch = default_collate(mini_list)
         minibatch['roidb'] = list_of_roidb[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
-        minibatch['data_flow'] = list_of_flows[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
+        if cfg.MODEL.LOAD_FLOW_FILE:
+            minibatch['data_flow'] = list_of_flows[i:(i + cfg.TRAIN.IMS_PER_BATCH)]
         for key in minibatch:
             Batch[key].append(minibatch[key])
     return Batch
