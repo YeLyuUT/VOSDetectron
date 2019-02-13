@@ -30,7 +30,7 @@ __global__ void FlowAlignForward_kernel(const int nthreads,const  int height, co
       // get bilinear positions
       float w_flo = w+flo_x;
       float h_flo = h+flo_y;
-      if ( h_flo<0 || h_flo>height-1 || w_flo<0 || w_flo>width-1 )
+      if ( h_flo<0 || h_flo>=height-1 || w_flo<0 || w_flo>=width-1 )
       {
         //outof image, we set it to 0.
         top[index] = 0;
@@ -71,7 +71,7 @@ __global__ void FlowAlignBackward_kernel(const int nthreads, const int height, c
       // get bilinear positions
       float w_flo = w+flo_x;
       float h_flo = h+flo_y;
-      if ( h_flo<0 || h_flo>height-1 || w_flo<0 || w_flo>width-1 )
+      if ( h_flo<0 || h_flo>=height-1 || w_flo<0 || w_flo>=width-1 )
       {
         //outof image, no grad propagated.
         continue;
