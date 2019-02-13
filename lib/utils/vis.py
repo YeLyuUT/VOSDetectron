@@ -117,7 +117,7 @@ def save_img_fig(im, im_name, output_dir,ext,dpi):
     plt.close('all')
 
 def viz_mask_result(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
-        box_alpha=0.0, dataset=None, ext='png', clr_cvt = None):
+        box_alpha=0.0, dataset=None, ext='png', img_saver = None):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if isinstance(boxes, list):
@@ -129,7 +129,9 @@ def viz_mask_result(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
     outImg = np.zeros(shape=(im.shape[0],im.shape[1]), dtype=np.uint8)
     # TODO: maybe we can have better mask merging strategy.
     # Display in largest to smallest order to reduce occlusion
-    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    # TODO change back to areas
+    #areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    areas = boxes[:, -1]
     sorted_inds = np.argsort(-areas)
     for i in sorted_inds:
         bbox = boxes[i, :4]
@@ -141,16 +143,15 @@ def viz_mask_result(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
         if segms is not None and len(segms) > i:
             color = classes[i]
             outImg[masks[:, :, i]>0] = color
-    if clr_cvt is not None:
-        outImg = clr_cvt(outImg)
-    output_name = os.path.basename(im_name) + '.' + ext
-    cv2.imwrite(os.path.join(output_dir, '{}'.format(output_name)), outImg)
+    if img_saver is not None:
+        output_name = os.path.basename(im_name) + '.' + ext
+        img_saver(os.path.join(output_dir, '{}'.format(output_name)), outImg)
     return outImg
 
 def vis_one_image(
         im, im_name, output_dir, boxes, segms=None, keypoints=None, thresh=0.9,
         kp_thresh=2, dpi=200, box_alpha=0.0, dataset=None, show_class=False,
-        ext='pdf', cls_mapper = None):
+        ext='pdf', cls_mapper = None, replace_mask_color_id_with_cls_id = False):
     """Visual debugging of detections."""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -181,7 +182,9 @@ def vis_one_image(
     ax.imshow(im)
 
     # Display in largest to smallest order to reduce occlusion
-    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    # TODO change back to areas
+    #areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    areas = boxes[:, -1]
     sorted_inds = np.argsort(-areas)
 
     mask_color_id = 0
@@ -190,10 +193,11 @@ def vis_one_image(
         score = boxes[i, -1]
         if score < thresh:
             continue
-        if not cls_mapper is None:
+        if not cls_mapper is None:            
             class_idx = cls_mapper[classes[i]]
         else:
             class_idx = classes[i]
+
         print(dataset.classes[class_idx], score)
         # show box (off by default, box_alpha=0.0)
         ax.add_patch(
@@ -213,6 +217,8 @@ def vis_one_image(
                     facecolor='g', alpha=0.4, pad=0, edgecolor='none'),
                 color='white')
 
+        if replace_mask_color_id_with_cls_id:
+            mask_color_id = classes[i]
         # show mask
         if segms is not None and len(segms) > i:
             img = np.ones(im.shape)
