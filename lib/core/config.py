@@ -928,14 +928,23 @@ __C.MODEL.IDENTITY_REPLACE_CLASS = True
 # Dynamically determine the instance number.
 __C.MODEL.TOTAL_INSTANCE_NUM = 0
 __C.MODEL.LOAD_FLOW_FILE = False
+__C.MODEL.USE_DELTA_FLOW = False
 __C.MODEL.SEQUENCE_LENGTH = 1
 # Warmup length.
 __C.TRAIN.SEQUENCE_WARMUP_LENGTH_RANGE = [0, 0]
+__C.TRAIN.USE_SEQ_WARMUP = False
 __C.TRAIN.ITER_BEFORE_USE_SEQ_WARMUP = 0
 __C.TRAIN.WARMUP_LENGTH_CHANGE_STEP = 100
+# Max trainable sequence length that can fit into the memory.
+__C.TRAIN.MAX_TRAINABLE_SEQ_LENGTH = 6
+
+# Alternate training backbone and conv-gru.
+__C.TRAIN.ALTERNATE_TRAINING = False
 # Number of detection per class.
-__C.TEST.NUM_DET_PER_CLASS = 0 
+__C.TEST.NUM_DET_PER_CLASS_PRE = 0
+__C.TEST.NUM_DET_PER_CLASS_POST = 0 
 __C.TEST.NMS_CROSS_CLASS = 0.
+__C.TEST.NMS_WITH_MASK_IOU = 0.
 # Training weights for losses.
 __C.TRAIN.LOSS_WEIGHT_CLS = 1.
 __C.TRAIN.LOSS_WEIGHT_BBOX = 1.
@@ -954,6 +963,7 @@ __C.TRAIN.FREEZE_CONV_GRU = False
 __C.TRAIN.FREEZE_FAST_RCNN = False
 __C.TRAIN.FREEZE_MASK = False
 __C.TRAIN.FREEZE_RPN = False
+__C.TRAIN.FREEZE_BOX_HEAD = False
 # ---------------------------------------------------------------------------- #
 # GroupNorm options
 # ---------------------------------------------------------------------------- #
