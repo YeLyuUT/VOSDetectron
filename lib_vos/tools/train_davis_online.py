@@ -51,7 +51,7 @@ import distutils.util
 import utils.misc as misc_utils
 import utils.net as net_utils
 import utils.vis as vis_utils
-from vos.davis_db import DAVIS_imdb
+from vos.davis_db import DAVIS_imdb, image_saver
 import subprocess
 from numpy import random as npr
 # Set up logging and load config options
@@ -225,6 +225,9 @@ def load_ckpt(args, model):
         optimizer = torch.optim.Adam(params)
     return optimizer    
 
+def davis_saver(path, img):
+    return image_saver(path, img)
+
 def main():
     """Main function"""
 
@@ -364,8 +367,8 @@ def main():
 
     for seq_idx in range(len(seq_start_end)):
         # TODO: remove following.
-        if seq_idx!=10:
-            continue
+        #if seq_idx!=10:
+          #  continue
         db.set_to_sequence(seq_idx)
         seq_name = db.get_current_seq_name()
         cur_output_dir = osp.join(args.output_dir,seq_name)
@@ -475,6 +478,7 @@ def main():
                         optimizer.step()
                         training_stats.IterToc()
                         training_stats.LogIterStats(step, lr)      
+                        maskRCNN.module.clean_hidden_states()
                     # ---- Training ends ----
                     # Save last checkpoint
                     #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
@@ -500,18 +504,19 @@ def main():
             maskRCNN.eval()
 
             im = db.get_image_cv2(idx)
-            flo = db.get_flow(idx)
+            flo = None
             assert im is not None
             if idx != 0:
-                assert flo is not None
+                if cfg.MODEL.LOAD_FLOW_FILE:
+                    flo = db.get_flow(idx)
+                    assert flo is not None
             timers = defaultdict(Timer)
             cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN, im, flo, timers=timers)
-            
+
             im_name = '%05d'%(idx)
             cls_mapper = [0]+[db.local_id_to_global_id(i, seq_idx) for i in range(1, cfg.MODEL.NUM_CLASSES)]
-            clr_cvt = lambda x: db.cfg.palette[x][...,[2,1,0]]
             thresh = 0.1
-            vis_utils.viz_mask_result(im, im_name, cur_output_dir, cls_boxes, segms=cls_segms, thresh=thresh,box_alpha=0.3, dataset=db, ext='png', clr_cvt = clr_cvt)
+            vis_utils.viz_mask_result(im, im_name, cur_output_dir, cls_boxes, segms=cls_segms, thresh=thresh,box_alpha=0.3, dataset=db, ext='png', img_saver = davis_saver)
             print(osp.join(seq_name,im_name))
             im_name = '%03d-%03d'%(seq_idx,idx)
             cur_output_pdf_dir = osp.join(cur_output_dir,'pdf')
@@ -527,7 +532,8 @@ def main():
               show_class=True,
               thresh=thresh,
               kp_thresh=2,
-              cls_mapper = cls_mapper)
+              cls_mapper = cls_mapper,
+              replace_mask_color_id_with_cls_id = True)
 
         if args.merge_pdfs:
             merge_out_path = '{}/results.pdf'.format(cur_output_pdf_dir)
@@ -537,7 +543,7 @@ def main():
                                                     merge_out_path)
             subprocess.call(command, shell=True)
         #TODO remove break
-        break
+        #break
 
 
 
