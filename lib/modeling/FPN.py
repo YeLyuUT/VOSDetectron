@@ -385,7 +385,10 @@ class fpn_rpn_outputs(nn.Module):
             bl_in = blobs_in[k_max - lvl]  # blobs_in is in reversed order
 
             fpn_rpn_conv = F.relu(self.FPN_RPN_conv(bl_in), inplace=True)
-            fpn_rpn_cls_score = self.FPN_RPN_cls_score(fpn_rpn_conv)
+            if cfg.MODEL.DETACH_RPN_CLS_PRED is False:
+                fpn_rpn_cls_score = self.FPN_RPN_cls_score(fpn_rpn_conv)
+            else:
+                fpn_rpn_cls_score = self.FPN_RPN_cls_score(fpn_rpn_conv.detach())
             fpn_rpn_bbox_pred = self.FPN_RPN_bbox_pred(fpn_rpn_conv)
             return_dict['rpn_cls_logits_fpn' + slvl] = fpn_rpn_cls_score
             return_dict['rpn_bbox_pred_fpn' + slvl] = fpn_rpn_bbox_pred

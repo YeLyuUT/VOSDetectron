@@ -47,7 +47,7 @@ import utils.image as image_utils
 import utils.keypoints as keypoint_utils
 
 
-def im_detect_all(model, im, flo, box_proposals=None, timers=None):
+def im_detect_all(model, im, flo, box_proposals=None, timers=None, prev_cls_boxes = None):
     """Process the outputs of model for testing
     Args:
       model: the network module
@@ -77,7 +77,7 @@ def im_detect_all(model, im, flo, box_proposals=None, timers=None):
     # cls_boxes boxes and scores are separated by class and in the format used
     # for evaluating results
     timers['misc_bbox'].tic()
-    scores, boxes, cls_boxes = box_results_with_nms_and_limit(scores, boxes)
+    scores, boxes, cls_boxes = box_results_with_nms_and_limit(scores, boxes, prev_cls_boxes=prev_cls_boxes)
     timers['misc_bbox'].toc()
     
     if cfg.MODEL.MASK_ON and boxes.shape[0] > 0:
@@ -116,6 +116,7 @@ def im_detect_all(model, im, flo, box_proposals=None, timers=None):
             iou_th = cfg.TEST.NMS_WITH_MASK_IOU,
             max_per_class = cfg.TEST.NUM_DET_PER_CLASS_POST
          )
+
     return cls_boxes, cls_segms, cls_keyps
 
 
@@ -744,7 +745,7 @@ def combine_heatmaps_size_dep(hms_ts, ds_ts, us_ts, boxes, heur_f):
     return hms_c
 
 
-def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
+def box_results_with_nms_and_limit(scores, boxes, prev_cls_boxes=None):  # NOTE: support single-batch
     """Returns bounding-box detection results by thresholding on scores and
     applying non-maximum suppression (NMS).
 
@@ -788,7 +789,7 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
                 cfg.TEST.BBOX_VOTE.VOTE_TH,
                 scoring_method=cfg.TEST.BBOX_VOTE.SCORING_METHOD
             )
-        cls_boxes[j] = nms_dets    
+        cls_boxes[j] = nms_dets
 
     # Limit to max_per_image detections **over all classes**
     if cfg.TEST.DETECTIONS_PER_IM > 0:
@@ -840,12 +841,28 @@ def box_results_with_nms_and_limit(scores, boxes):  # NOTE: support single-batch
             keep = np.argsort(-cls_boxes[j][:, -1])[:cfg.TEST.NUM_DET_PER_CLASS_PRE]
             cls_boxes[j] = cls_boxes[j][keep, :]
 
+    # nms by previous box.
+    if cfg.TEST.NMS_SMALL_BOX_IOU>0:
+        for j in range(1, num_classes):
+            if prev_cls_boxes is not None:
+                assert len(prev_cls_boxes[j])<2, 'number of prev boxes should <2.'
+                if len(prev_cls_boxes[j])==1:                    
+                    if prev_cls_boxes[j][0][-1]<cfg.TEST.NMS_SMALL_BOX_SCORE_THRESHOLD:
+                        #if not confident about previous box, no nms.
+                        continue
+                    prev_cls_box = prev_cls_boxes[j][0][:-1]
+                    index_to_remove = []
+                    for id_box in range(len(cls_boxes[j])-1,-1,-1):
+                        box = cls_boxes[j][id_box][:-1]
+                        iou = bb_intersection_over_union(prev_cls_box, box)
+                        if iou<cfg.TEST.NMS_SMALL_BOX_IOU:
+                            index_to_remove.append(id_box)
+                    cls_boxes[j] = np.delete(cls_boxes[j], index_to_remove, 0)
+
     im_results = np.vstack([cls_boxes[j] for j in range(1, num_classes)])
     boxes = im_results[:, :-1]
     scores = im_results[:, -1]
     return scores, boxes, cls_boxes
-
-
 
 def segm_results(cls_boxes, masks, ref_boxes, im_h, im_w):
     num_classes = cfg.MODEL.NUM_CLASSES
@@ -940,6 +957,30 @@ def iou_half_numpy(output, label):
     iou1 = (intersection) / (union1 + 1e-6)
     iou2 = (intersection) / (union2 + 1e-6)
     return iou1, iou2
+
+def bb_intersection_over_union(boxA, boxB):
+    # determine the (x, y)-coordinates of the intersection rectangle
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+ 
+    # compute the area of intersection rectangle
+    interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+ 
+    # compute the area of both the prediction and ground-truth
+    # rectangles
+    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+ 
+    # compute the intersection over union by taking the intersection
+    # area and dividing it by the sum of prediction + ground-truth
+    # areas - the interesection area
+    iou = interArea / float(boxAArea + boxBArea - interArea)
+ 
+    # return the intersection over union value
+    return iou
+
 
 def nms_with_mask_iou(cls_boxes, cls_segms, iou_th = 0.9, max_per_class = 1):
     if isinstance(cls_boxes, list):

@@ -13,6 +13,29 @@ import numpy as np
 class fast_rcnn_outputs(nn.Module):
     def __init__(self, dim_in):
         super().__init__()
+        '''
+        hidden_dim = cfg.FAST_RCNN.MLP_HEAD_DIM
+        module_list_cls = []
+        for i in range(cfg.FAST_RCNN.NUM_STACKED_CONVS_CLS):
+            module_list_cls.extend([
+                nn.Conv2d(dim_in, hidden_dim, 3, 1, 1, bias=False),
+                nn.GroupNorm(net_utils.get_group_gn(hidden_dim), hidden_dim,
+                             eps=cfg.GROUP_NORM.EPSILON),
+                nn.ReLU(inplace=True)
+            ])
+        self.convs_cls = nn.Sequential(*module_list_cls)
+
+        module_list_box = []
+        for i in range(cfg.FAST_RCNN.NUM_STACKED_CONVS_BOX):
+            module_list_box.extend([
+                nn.Conv2d(dim_in, hidden_dim, 3, 1, 1, bias=False),
+                nn.GroupNorm(net_utils.get_group_gn(hidden_dim), hidden_dim,
+                             eps=cfg.GROUP_NORM.EPSILON),
+                nn.ReLU(inplace=True)
+            ])
+        self.convs_box = nn.Sequential(*module_list_box)
+        '''
+
         self.cls_score = nn.Linear(dim_in, cfg.MODEL.NUM_CLASSES)
         if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:  # bg and fg
             self.bbox_pred = nn.Linear(dim_in, 4 * 2)
@@ -44,7 +67,11 @@ class fast_rcnn_outputs(nn.Module):
     def forward(self, x):
         if x.dim() == 4:
             x = x.squeeze(3).squeeze(2)
-        cls_score = self.cls_score(x)
+        if cfg.MODEL.DETACH_CLS_PRED is False:
+            cls_score = self.cls_score(x)
+        else:
+            cls_score = self.cls_score(x.detach())
+
         if not self.training:
             cls_score = F.softmax(cls_score, dim=1)
         if cfg.MODEL.IDENTITY_TRAINING:

@@ -460,11 +460,19 @@ def main():
             # clean hidden states before training.
             maskRCNN.module.clean_hidden_states()
             maskRCNN.module.clean_flow_features()
-            if cfg.TRAIN.ALTERNATE_TRAINING:
-                saved_input_data = []
-                saved_hidden_states = None
 
             assert len(input_data_sequence['data']) == cfg.MODEL.SEQUENCE_LENGTH+warmup_length, print(len(input_data_sequence['data']), '!=' ,cfg.MODEL.SEQUENCE_LENGTH+warmup_length)
+
+            # if train_part == 0: train backbone.
+            # else train_part == 1: train heads.
+            train_part = 1
+            if cfg.TRAIN.ALTERNATE_TRAINING:
+                if step%2==0:
+                    maskRCNN.module.freeze_conv_body_only()
+                    train_part = 1
+                else:
+                    maskRCNN.module.train_conv_body_only()
+                    train_part = 0
             # this is used for longer sequence training.
             # when reach maximum trainable length, detach the hidden states.
             cnter_for_detach_hidden_states = 0
@@ -489,17 +497,12 @@ def main():
                     maskRCNN.module.detach_hidden_states()
                     maskRCNN.module.set_stop_after_hidden_states(stop=False)
                     continue
- 
-                #save input_data for alternative training.
-                if cfg.TRAIN.ALTERNATE_TRAINING:
-                    saved_hidden_states = maskRCNN.module.clone_detach_hidden_states()
-                    saved_input_data.append(copy(input_data))
 
                 net_outputs = maskRCNN(**input_data)
                 training_stats.UpdateIterStats(net_outputs, inner_iter)
                 loss = net_outputs['total_loss']
 
-                if  cnter_for_detach_hidden_states>= cfg.TRAIN.MAX_TRAINABLE_SEQ_LENGTH or inner_iter == cfg.MODEL.SEQUENCE_LENGTH+warmup_length-1:
+                if  train_part==0 or cnter_for_detach_hidden_states>= cfg.TRAIN.MAX_TRAINABLE_SEQ_LENGTH or inner_iter == cfg.MODEL.SEQUENCE_LENGTH+warmup_length-1:
                     # if reach the max trainable length or end of the sequence. free the graph and detach the hidden states.
                     loss.backward()
                     maskRCNN.module.detach_hidden_states()
@@ -507,24 +510,11 @@ def main():
                 else:
                     loss.backward(retain_graph=True)
                     cnter_for_detach_hidden_states+=1
-            optimizer.step()
-            optimizer.zero_grad()
-            # Train the backbone only.
-            if cfg.TRAIN.ALTERNATE_TRAINING and len(saved_input_data)>0:
-                maskRCNN.module.train_conv_body_only()
-                maskRCNN.module.set_hidden_states(saved_hidden_states)
-                for input_data in saved_input_data:
-                    maskRCNN.module.detach_hidden_states()
-                    net_outputs = maskRCNN(**input_data)
-                    training_stats.UpdateIterStats(net_outputs, inner_iter)
-                    loss = net_outputs['total_loss']                    
-                    loss.backward()
-                maskRCNN.module.freeze_conv_body_only()
-                saved_input_data = []
-                saved_hidden_states = None
-
-            optimizer.step()
-            optimizer.zero_grad()
+                #TODO step every time?
+                if cnter_for_detach_hidden_states == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
+           
             training_stats.IterToc()
             training_stats.LogIterStats(step, lr)
             
@@ -535,14 +525,20 @@ def main():
         # Save last checkpoint
         save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
 
-    except (RuntimeError, KeyboardInterrupt):
+    except (RuntimeError):
         del dataiterator
-        #logger.info('Save ckpt on exception ...')
-        #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
-        #logger.info('Save ckpt done.')
+        logger.info('Save ckpt on exception ...')
+        save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
+        logger.info('Save ckpt done.')
         stack_trace = traceback.format_exc()
         print(stack_trace)
-
+    except (KeyboardInterrupt):
+        del dataiterator
+        logger.info('Save ckpt on Keyboard Interrupt ...')
+        save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
+        logger.info('Save ckpt done.')
+        stack_trace = traceback.format_exc()
+        print(stack_trace)
     finally:
         if args.use_tfboard and not args.no_save:
             tblogger.close()

@@ -16,7 +16,7 @@ def addPath(path):
   if path not in sys.path:
     sys.path.append(path)
 
-davis_api_home = osp.join(cfg.DAVIS.HOME,'python','lib')
+davis_api_home = osp.join(cfg.SegTrack_v2.HOME,'python','lib')
 dataset_lib = osp.abspath(osp.join(osp.dirname(__file__),'../../lib/'))
 vos_util_path = osp.abspath(osp.join(osp.dirname(__file__),'../../lib_vos/vos_utils'))
 addPath(davis_api_home)
@@ -43,8 +43,7 @@ import pycocotools.mask as mask_util
 splits = ['train','val','trainval','test-dev']
 
 def image_saver(filename, array):
-  io.imwrite_indexed(filename, array)
-  return cv2.imread(filename)
+  return io.imwrite_indexed(filename, array)
 
 class DAVIS_imdb(vos_imdb):
   def __init__(self,db_name="DAVIS", split = 'train',cls_mapper = None, load_flow=False, load_inv_db=False):
@@ -421,9 +420,7 @@ class DAVIS_imdb(vos_imdb):
           x,y,w,h = self._expand_box(x, y, w, h, rate = 0.05)
         else:
           print(bboxs[val])
-          x1,y1,x2,y2 = bboxs[val][-1]
-          x,y,w,h = x1, y1, x2-x1, y2-y1
-
+          x,y,w,h = bboxs[val][-1]
         #obj['segmentation'] = binary_mask_to_rle(mask)
         obj['segmentation'] = mask_util.encode(np.array(mask, order='F', dtype=np.uint8))
         obj['area'] = np.sum(mask)

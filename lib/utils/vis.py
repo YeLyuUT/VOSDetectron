@@ -117,7 +117,7 @@ def save_img_fig(im, im_name, output_dir,ext,dpi):
     plt.close('all')
 
 def viz_mask_result(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
-        box_alpha=0.0, dataset=None, ext='png', img_saver = None):
+        box_alpha=0.0, dataset=None, ext='png', img_saver = None, rvt_cls_threshold = 0):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if isinstance(boxes, list):
@@ -127,26 +127,34 @@ def viz_mask_result(im, im_name, output_dir, boxes, segms=None, thresh=0.9,
         masks = mask_util.decode(segms)
 
     outImg = np.zeros(shape=(im.shape[0],im.shape[1]), dtype=np.uint8)
+    rtv_gt = np.zeros(shape=(im.shape[0],im.shape[1]), dtype=np.uint8)
+    rtv_bboxs = [[] for i in range(256)]
     # TODO: maybe we can have better mask merging strategy.
     # Display in largest to smallest order to reduce occlusion
     # TODO change back to areas
     #areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-    areas = boxes[:, -1]
-    sorted_inds = np.argsort(-areas)
-    for i in sorted_inds:
-        bbox = boxes[i, :4]
-        score = boxes[i, -1]
-        if score < thresh:
-            continue
+    if boxes is not None:
+        areas = -boxes[:, -1]
+        sorted_inds = np.argsort(-areas)
+        for i in sorted_inds:
+            bbox = boxes[i, :4]
+            score = boxes[i, -1]
+            if score < thresh:
+                continue
 
-        # show mask
-        if segms is not None and len(segms) > i:
-            color = classes[i]
-            outImg[masks[:, :, i]>0] = color
+            # show mask
+            if segms is not None and len(segms) > i:
+                color = classes[i]
+                outImg[masks[:, :, i]>0] = color
+                if score>rvt_cls_threshold:
+                    rtv_gt[masks[:, :, i]>0] = color
+                    rtv_bboxs[classes[i]].append(bbox)
     if img_saver is not None:
         output_name = os.path.basename(im_name) + '.' + ext
-        img_saver(os.path.join(output_dir, '{}'.format(output_name)), outImg)
-    return outImg
+        clr_mask = img_saver(os.path.join(output_dir, '{}'.format(output_name)), outImg)
+        return rtv_gt, rtv_bboxs, clr_mask
+    else:
+        return rtv_gt, rtv_bboxs, None
 
 def vis_one_image(
         im, im_name, output_dir, boxes, segms=None, keypoints=None, thresh=0.9,
@@ -184,7 +192,7 @@ def vis_one_image(
     # Display in largest to smallest order to reduce occlusion
     # TODO change back to areas
     #areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-    areas = boxes[:, -1]
+    areas = -boxes[:, -1]
     sorted_inds = np.argsort(-areas)
 
     mask_color_id = 0
@@ -205,13 +213,13 @@ def vis_one_image(
                           bbox[2] - bbox[0],
                           bbox[3] - bbox[1],
                           fill=False, edgecolor='g',
-                          linewidth=0.5, alpha=box_alpha))
+                          linewidth=1.0, alpha=box_alpha))
 
         if show_class:
             ax.text(
                 bbox[0], bbox[1] - 2,
                 get_class_string(class_idx, score, dataset),
-                fontsize=3,
+                fontsize=4,
                 family='serif',
                 bbox=dict(
                     facecolor='g', alpha=0.4, pad=0, edgecolor='none'),
@@ -238,7 +246,7 @@ def vis_one_image(
             for c in contour:
                 polygon = Polygon(
                     c.reshape((-1, 2)),
-                    fill=True, facecolor=color_mask,
+                    fill=False, facecolor=color_mask, #TODO fill
                     edgecolor='w', linewidth=1.0,
                     alpha=0.5)
                 ax.add_patch(polygon)

@@ -35,6 +35,7 @@ from core.config import cfg, cfg_from_file, cfg_from_list, assert_and_infer_cfg
 from datasets.roidb import combined_roidb_for_training
 from roi_data.loader import RoiDataLoader, MinibatchSampler, BatchSampler, collate_minibatch
 #from modeling.model_builder import Generalized_RCNN
+#import modeling.model_builder as vos_model_builder
 from vos_modeling import vos_model_builder
 from utils.detectron_weight_helper import load_detectron_weight
 from utils.logging import setup_logging
@@ -445,7 +446,7 @@ def main():
                 for key in input_data:
                     if key != 'roidb': # roidb is a list of ndarrays with inconsistent length
                         input_data[key] = list(map(Variable, input_data[key]))
-
+                maskRCNN.module.clean_hidden_states()
                 net_outputs = maskRCNN(**input_data)
                 training_stats.UpdateIterStats(net_outputs, inner_iter)
                 loss = net_outputs['total_loss']

@@ -72,11 +72,13 @@ def check_inference(net_func):
 class Generalized_VOS_RCNN(nn.Module):
     def __init__(self):
         super().__init__()
+        # Stop forwarding from Conv-GRU module.
         self.stop_after_hidden_states = False
         # For cache
         self.mapping_to_detectron = None
         self.orphans_in_detectron = None
 
+        self.update_hidden_states = True
         # Backbone for feature extraction
         self.Conv_Body = get_func(cfg.MODEL.CONV_BODY)()
 
@@ -194,8 +196,18 @@ class Generalized_VOS_RCNN(nn.Module):
         for p in module.parameters():
                 p.requires_grad = requires_grad
 
-    def freeze_conv_body_only(self):
+    def freeze_all_layers(self):
         self.set_require_param_grad_for_module(self.Conv_Body, False)
+        for i in range(len(self.ConvGRUs)):
+            self.set_require_param_grad_for_module(self.ConvGRUs[i], False)
+        self.set_require_param_grad_for_module(self.Mask_Outs, False)
+        self.set_require_param_grad_for_module(self.Mask_Head, False)
+        self.set_require_param_grad_for_module(self.Box_Outs, False)
+        self.set_require_param_grad_for_module(self.Box_Head, False)
+        self.set_require_param_grad_for_module(self.RPN, False)
+
+    def unfreeze_all_layers(self):
+        self.set_require_param_grad_for_module(self.Conv_Body, True)
         for i in range(len(self.ConvGRUs)):
             self.set_require_param_grad_for_module(self.ConvGRUs[i], True)
         self.set_require_param_grad_for_module(self.Mask_Outs, True)
@@ -204,15 +216,18 @@ class Generalized_VOS_RCNN(nn.Module):
         self.set_require_param_grad_for_module(self.Box_Head, True)
         self.set_require_param_grad_for_module(self.RPN, True)
 
+    def freeze_conv_body_only(self):
+        self.unfreeze_all_layers()
+        self.set_require_param_grad_for_module(self.Conv_Body, False)
+
     def train_conv_body_only(self):
+        self.freeze_all_layers()
         self.set_require_param_grad_for_module(self.Conv_Body, True)
-        for i in range(len(self.ConvGRUs)):
-            self.set_require_param_grad_for_module(self.ConvGRUs[i], False)
-        self.set_require_param_grad_for_module(self.Mask_Outs, False)
-        self.set_require_param_grad_for_module(self.Mask_Head, False)
-        self.set_require_param_grad_for_module(self.Box_Outs, False)
-        self.set_require_param_grad_for_module(self.Box_Head, False)
-        self.set_require_param_grad_for_module(self.RPN, False)
+
+    def train_cls_branch_only(self):
+        self.freeze_all_layers()
+        self.set_require_param_grad_for_module(self.Box_Outs.cls_score, True)
+        #self.set_require_param_grad_for_module(self.Box_Outs, True)
 
     def _create_hidden_state(self, idx, ref_blob):
         h_c = cfg.CONVGRU.HIDDEN_STATE_CHANNELS[idx]
@@ -261,6 +276,9 @@ class Generalized_VOS_RCNN(nn.Module):
     def set_stop_after_hidden_states(self, stop ):
         self.stop_after_hidden_states = stop
 
+    def set_update_hidden_states(self, update = True):
+        self.update_hidden_states = update
+
     def forward(self, data, im_info, roidb=None, data_flow = None, **rpn_kwargs):
         if cfg.PYTORCH_VERSION_LESS_THAN_040:
             return self._forward(data, im_info, roidb, data_flow, **rpn_kwargs)
@@ -292,9 +310,6 @@ class Generalized_VOS_RCNN(nn.Module):
         else:
             #Caller needs to manually clean the hidden states.
             self.check_exist_hidden_states(blob_conv)
-        if cfg.CONVGRU.DYNAMIC_MODEL is True:
-          #if dynamic model, hidden_states need to be updated.
-          warped_hidden_states = [None]*5          
        
         if cfg.MODEL.USE_DELTA_FLOW:
             #overwrite dataflow.                
@@ -309,19 +324,26 @@ class Generalized_VOS_RCNN(nn.Module):
                     delta_flow_lvl = nn.functional.upsample(delta_flow_lvl, scale_factor = 1.0/self.fpn_scales[i], mode = 'bilinear')
                     delta_flow_lvl = delta_flow_lvl/self.fpn_scales[i]
                     data_flow = data_flow+delta_flow_lvl
-        for i in range(5):
-            if not data_flow is None: 
-                #assert not np.any(np.isnan(data_flow.data.cpu().numpy())), 'data_flow has nan.'
-                warped_hidden_states[i] = self.FlowAligns[i](self.hidden_states[i], data_flow)
+        if cfg.CONVGRU.DYNAMIC_MODEL is True:
+            #if dynamic model, hidden_states need to be updated.
+            warped_hidden_states = [None]*5
+            for i in range(5):
+                if not data_flow is None:
+                    #assert not np.any(np.isnan(data_flow.data.cpu().numpy())), 'data_flow has nan.'
+                    warped_hidden_states[i] = self.FlowAligns[i](self.hidden_states[i], data_flow)
+                else:
+                    warped_hidden_states[i] = self.hidden_states[i]
+
+        for i in range(4, -1, -1):
+            if cfg.CONVGRU.DYNAMIC_MODEL is True:
+                blob_conv[i] = self.ConvGRUs[i]( (blob_conv[i], warped_hidden_states[i]) )
             else:
-                warped_hidden_states[i] = self.hidden_states[i]
+                blob_conv[i] = self.ConvGRUs[i]( (blob_conv[i], self.hidden_states[i]) )
+            if i<4:
+                blob_conv[i] = blob_conv[i]/2.0+nn.functional.upsample(blob_conv[i+1],scale_factor=0.5,mode='bilinear')/2.0
 
-            self.hidden_states[i] = warped_hidden_states[i]
-                    
-
-        for i in range(5):            
-            self.hidden_states[i] = self.ConvGRUs[i]( (blob_conv[i], self.hidden_states[i]) )
-            blob_conv[i] = self.hidden_states[i]
+            if self.update_hidden_states and cfg.CONVGRU.DYNAMIC_MODEL:
+                self.hidden_states[i] = blob_conv[i]
 
         if self.stop_after_hidden_states is True:
            # print('stop after hidden states.')

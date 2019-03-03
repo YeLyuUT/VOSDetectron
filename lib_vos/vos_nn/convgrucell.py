@@ -33,13 +33,13 @@ class ConvGRUCell2d(nn.Module):
 
     padding=kernel_size//2
     #update gate
-    self.Wz_h = nn.Conv2d(h_channels,h_channels,kernel_size=1,padding=0, stride=stride, dilation=dilation, groups=groups, bias=False)
+    self.Wz_h = nn.Conv2d(h_channels,h_channels,kernel_size=kernel_size,padding=padding, stride=stride, dilation=dilation, groups=groups, bias=False)
     self.Wz_x = nn.Conv2d(i_channels,h_channels,kernel_size=kernel_size,padding=padding, stride=stride, dilation=dilation, groups=groups, bias=False)
     #reset gate  
-    self.Wr_h = nn.Conv2d(h_channels,h_channels,kernel_size=1,padding=0, stride=stride, dilation=dilation, groups=groups, bias=False)
+    self.Wr_h = nn.Conv2d(h_channels,h_channels,kernel_size=kernel_size,padding=padding, stride=stride, dilation=dilation, groups=groups, bias=False)
     self.Wr_x = nn.Conv2d(i_channels,h_channels,kernel_size=kernel_size,padding=padding, stride=stride, dilation=dilation, groups=groups, bias=False)
     #hidden state
-    self.Wh_h  = nn.Conv2d(h_channels,h_channels,kernel_size=1,padding=0, stride=stride, dilation=dilation, groups=groups, bias=False)
+    self.Wh_h  = nn.Conv2d(h_channels,h_channels,kernel_size=kernel_size,padding=padding, stride=stride, dilation=dilation, groups=groups, bias=False)
     self.Wh_x  = nn.Conv2d(i_channels,h_channels,kernel_size=kernel_size,padding=padding, stride=stride, dilation=dilation, groups=groups, bias=False)
     #non-linear ops
     self.sigmoid = nn.Sigmoid()

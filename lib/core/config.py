@@ -930,6 +930,10 @@ __C.MODEL.TOTAL_INSTANCE_NUM = 0
 __C.MODEL.LOAD_FLOW_FILE = False
 __C.MODEL.USE_DELTA_FLOW = False
 __C.MODEL.SEQUENCE_LENGTH = 1
+__C.MODEL.DETACH_CLS_PRED = False
+__C.MODEL.DETACH_RPN_CLS_PRED = False
+
+__C.MRCNN.USE_ATTENTION = False
 # Warmup length.
 __C.TRAIN.SEQUENCE_WARMUP_LENGTH_RANGE = [0, 0]
 __C.TRAIN.USE_SEQ_WARMUP = False
@@ -945,15 +949,24 @@ __C.TEST.NUM_DET_PER_CLASS_PRE = 0
 __C.TEST.NUM_DET_PER_CLASS_POST = 0 
 __C.TEST.NMS_CROSS_CLASS = 0.
 __C.TEST.NMS_WITH_MASK_IOU = 0.
+__C.TEST.NMS_SMALL_BOX_IOU = 0.
+__C.TEST.NMS_SMALL_BOX_SCORE_THRESHOLD = 0.
 # Training weights for losses.
 __C.TRAIN.LOSS_WEIGHT_CLS = 1.
 __C.TRAIN.LOSS_WEIGHT_BBOX = 1.
 __C.TRAIN.LOSS_WEIGHT_MASK = 1.
 
+# Online Training.
 # Online Training stop criteria.
 __C.TRAIN.SC_CLS_LOSS_TH = 0.
 __C.TRAIN.SC_BBOX_LOSS_TH = 0.
 __C.TRAIN.SC_MASK_LOSS_TH = 0.
+__C.TRAIN.SC_RPN_CLS_LOSS_TH = 0.
+__C.TRAIN.ONLINE_TRAINING_FOR_FIRST_IMAGE_ONLY = True
+__C.TRAIN.ONLINE_TRAINING_KEEP_ZERO_HIDDEN_STATES = False
+__C.TRAIN.ONLINE_TRAINING_SECONDARY_MAX_ITER = 50
+#only cls score higher than 0.9, it is used for training.
+__C.TRAIN.ONLINE_TRAINING_CLS_THRESHOLD = 0.9
 # ---------------------------------------------------------------------------- #
 # Freeze options
 # ---------------------------------------------------------------------------- #

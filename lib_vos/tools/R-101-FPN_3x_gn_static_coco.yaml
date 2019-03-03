@@ -22,6 +22,7 @@ FPN:
   USE_GN: True  # Note: use GN on the FPN-specific layers
   RPN_ANCHOR_START_SIZE: 32
   ROI_CANONICAL_SCALE: 224
+  COARSEST_STRIDE: 64
 RESNETS:
   IMAGENET_PRETRAINED_WEIGHTS: '../../data/pretrained_model/R-101-GN.pkl'
   STRIDE_1X1: False  # default True for MSRA; False for C2 or Torch models

@@ -83,18 +83,21 @@ class TrainingStats(object):
             assert loss.shape[0] == cfg.NUM_GPUS
             loss = loss.mean(dim=0, keepdim=True)
             loss_data = loss.data[0]
-            model_out['losses'][k] = loss  
+            model_out['losses'][k] = loss
             if k == 'loss_cls':
-                loss = loss*cfg.TRAIN.LOSS_WEIGHT_CLS
                 if loss>cfg.TRAIN.SC_CLS_LOSS_TH:
+                    loss = loss*cfg.TRAIN.LOSS_WEIGHT_CLS                
                     total_loss += loss
             elif k == 'loss_bbox':
-                loss = loss*cfg.TRAIN.LOSS_WEIGHT_BBOX
                 if loss>cfg.TRAIN.SC_BBOX_LOSS_TH:
+                    loss = loss*cfg.TRAIN.LOSS_WEIGHT_BBOX                
                     total_loss += loss
             elif k == 'loss_mask':
-                loss = loss*cfg.TRAIN.LOSS_WEIGHT_MASK
                 if loss>cfg.TRAIN.SC_MASK_LOSS_TH:
+                    loss = loss*cfg.TRAIN.LOSS_WEIGHT_MASK                
+                    total_loss += loss
+            elif k.startswith('loss_rpn_cls_'):
+                if self.smoothed_losses['loss_rpn_cls'].count>0 and self.smoothed_losses['loss_rpn_cls'].GetAverageValue()>cfg.TRAIN.SC_RPN_CLS_LOSS_TH:
                     total_loss += loss
             else:
                 total_loss += loss

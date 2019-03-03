@@ -11,7 +11,7 @@ from core.config import cfg
 from modeling import ResNet
 import nn as mynn
 import utils.net as net_utils
-
+from nn.modules.attention import SelfAttention, SimpleAttention
 
 # ---------------------------------------------------------------------------- #
 # Mask R-CNN outputs and losses
@@ -213,7 +213,8 @@ class mask_rcnn_fcn_head_v1upXconvs_gn(nn.Module):
 
         # upsample layer
         self.upconv = nn.ConvTranspose2d(dim_inner, dim_inner, 2, 2, 0)
-
+        if cfg.MRCNN.USE_ATTENTION:
+            self.attention = SimpleAttention(dim_in)
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -251,6 +252,10 @@ class mask_rcnn_fcn_head_v1upXconvs_gn(nn.Module):
             spatial_scale=self.spatial_scale,
             sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO
         )
+
+        if cfg.MRCNN.USE_ATTENTION:
+            x = self.attention(x)+x
+
         x = self.conv_fcn(x)
         return F.relu(self.upconv(x), inplace=True)
 

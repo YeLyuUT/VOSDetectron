@@ -15,6 +15,7 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 import cv2
+from copy import deepcopy
 cv2.setNumThreads(0)  # pytorch issue 1355: possible deadlock in dataloader
 
 def addPath(path):
@@ -52,6 +53,7 @@ import utils.misc as misc_utils
 import utils.net as net_utils
 import utils.vis as vis_utils
 from vos.davis_db import DAVIS_imdb, image_saver
+from vos import davis_db
 import subprocess
 from numpy import random as npr
 # Set up logging and load config options
@@ -365,8 +367,12 @@ def main():
             # Set the Tensorboard logger
             tblogger = SummaryWriter(output_dir)
 
+    saved_cfg = deepcopy(cfg)
     for seq_idx in range(len(seq_start_end)):
+        print('Processing sequence of number %d.'%(seq_idx))
         # TODO: remove following.
+        if seq_idx<16:
+            continue
         #if seq_idx!=10:
           #  continue
         db.set_to_sequence(seq_idx)
@@ -385,10 +391,52 @@ def main():
         optimizer = load_ckpt(args, maskRCNN)
         lr = optimizer.param_groups[0]['lr']  # lr of non-bias parameters, for commmand line outputs.
         maskRCNN = mynn.DataParallel(maskRCNN, cpu_keywords=['im_info', 'roidb'], minibatch=True)
+        last_gt = None
+        last_last_hidden_states = [None]*5
+        last_hidden_states = [None]*5
+        last_boxes = None
+        prev_cls_boxes = None
         for idx in range(len(roidbs)):
-            if idx == 0:                    
+            #online training
+            if idx == 0:
                 roidb = roidbs[idx:idx+1]
                 maskRCNN.module.clean_hidden_states()
+                #reload
+                cfg.TRAIN.SCALES = saved_cfg.TRAIN.SCALES
+                cfg.SOLVER.BASE_LR = saved_cfg.SOLVER.BASE_LR
+                cfg.TRAIN.SC_CLS_LOSS_TH =saved_cfg.TRAIN.SC_CLS_LOSS_TH
+                cfg.SOLVER.WARM_UP_ITERS = saved_cfg.SOLVER.WARM_UP_ITERS
+                cfg.SOLVER.MAX_ITER = saved_cfg.SOLVER.MAX_ITER
+                cfg.MODEL.DETACH_RPN_CLS_PRED = saved_cfg.MODEL.DETACH_RPN_CLS_PRED
+            elif not cfg.TRAIN.ONLINE_TRAINING_FOR_FIRST_IMAGE_ONLY and idx>=2:
+                ##### adjust other settings according to image. #####
+                # only train the cls.
+                maskRCNN.module.train_cls_branch_only()
+                maskRCNN.module.set_require_param_grad_for_module(maskRCNN.module.RPN, True)
+                # only use 1 scale so the hidden states can be kept.
+                cfg.TRAIN.SCALES = (cfg.TEST.SCALE,)
+                # adjust the online training loss threshold. So these two threshold takes no effect.
+                #cfg.TRAIN.SC_BBOX_LOSS_TH = 10.0
+                #cfg.TRAIN.SC_MASK_LOSS_TH = 10.0
+                cfg.SOLVER.BASE_LR = 0.001
+                cfg.SOLVER.WARM_UP_ITERS = 0
+                cfg.SOLVER.MAX_ITER = cfg.TRAIN.ONLINE_TRAINING_SECONDARY_MAX_ITER
+                cfg.TRAIN.SC_CLS_LOSS_TH = saved_cfg.TRAIN.SC_CLS_LOSS_TH + 0.05 # lossen the requirement.
+                cfg.MODEL.DETACH_RPN_CLS_PRED = True
+                ####################################
+                roidb = roidbs[idx-1:idx]
+                db._prep_roidb_entry(roidb[0])
+                db.add_gt_annotations_to_entry(roidb[0], last_gt, None)
+                assert last_last_hidden_states is not None and last_last_hidden_states[0] is not None
+                maskRCNN.module.set_hidden_states(last_last_hidden_states)
+                maskRCNN.module.set_update_hidden_states(False)
+                if cfg.TRAIN.ONLINE_TRAINING_KEEP_ZERO_HIDDEN_STATES:
+                    maskRCNN.module.clean_hidden_states()
+            #TODO now, use online training for every image.
+            stop_train = False
+            if last_gt is not None and not np.any(last_gt>0):
+                stop_train = True
+            if idx == 0 or (not cfg.TRAIN.ONLINE_TRAINING_FOR_FIRST_IMAGE_ONLY and idx>=2) and not stop_train:
                 ### Training Loop ###
                 maskRCNN.train()
                 # Set index for decay steps
@@ -427,58 +475,84 @@ def main():
                     logger.info('Training starts !')
                     step = 0
                     for step in range(0, cfg.SOLVER.MAX_ITER):
-                        # Warm up
-                        if step < cfg.SOLVER.WARM_UP_ITERS:
-                            method = cfg.SOLVER.WARM_UP_METHOD
-                            if method == 'constant':
-                                warmup_factor = cfg.SOLVER.WARM_UP_FACTOR
-                            elif method == 'linear':
-                                alpha = step / cfg.SOLVER.WARM_UP_ITERS
-                                warmup_factor = cfg.SOLVER.WARM_UP_FACTOR * (1 - alpha) + alpha
-                            else:
-                                raise KeyError('Unknown SOLVER.WARM_UP_METHOD: {}'.format(method))
-                            lr_new = cfg.SOLVER.BASE_LR * warmup_factor
-                            net_utils.update_learning_rate(optimizer, lr, lr_new)
-                            lr = optimizer.param_groups[0]['lr']
-                            assert lr == lr_new
-                        elif step == cfg.SOLVER.WARM_UP_ITERS:
-                            net_utils.update_learning_rate(optimizer, lr, cfg.SOLVER.BASE_LR)
-                            lr = optimizer.param_groups[0]['lr']
-                            assert lr == cfg.SOLVER.BASE_LR
-
-                        # Learning rate decay
-                        if decay_steps_ind < len(cfg.SOLVER.STEPS) and \
-                                step == cfg.SOLVER.STEPS[decay_steps_ind]:
-                            logger.info('Decay the learning on step %d', step)
-                            lr_new = lr * cfg.SOLVER.GAMMA
-                            net_utils.update_learning_rate(optimizer, lr, lr_new)
-                            lr = optimizer.param_groups[0]['lr']
-                            assert lr == lr_new
-                            decay_steps_ind += 1
+                        # Warm up for 1st image only.
+                        if idx==0:
+                            if step < cfg.SOLVER.WARM_UP_ITERS:
+                                method = cfg.SOLVER.WARM_UP_METHOD
+                                if method == 'constant':
+                                    warmup_factor = cfg.SOLVER.WARM_UP_FACTOR
+                                elif method == 'linear':
+                                    alpha = step / cfg.SOLVER.WARM_UP_ITERS
+                                    warmup_factor = cfg.SOLVER.WARM_UP_FACTOR * (1 - alpha) + alpha
+                                else:
+                                    raise KeyError('Unknown SOLVER.WARM_UP_METHOD: {}'.format(method))
+                                lr_new = cfg.SOLVER.BASE_LR * warmup_factor
+                                net_utils.update_learning_rate(optimizer, lr, lr_new)
+                                lr = optimizer.param_groups[0]['lr']
+                                assert lr == lr_new
+                            elif step == cfg.SOLVER.WARM_UP_ITERS:
+                                net_utils.update_learning_rate(optimizer, lr, cfg.SOLVER.BASE_LR)
+                                lr = optimizer.param_groups[0]['lr']
+                                assert lr == cfg.SOLVER.BASE_LR
 
                         training_stats.IterTic()
                         optimizer.zero_grad()
-              
+                        maskRCNN.module.set_update_hidden_states(False)
                         net_outputs = maskRCNN(**input_data)
-                        training_stats.UpdateIterStats(net_outputs)                        
-                        loss = net_outputs['total_loss']
+                        maskRCNN.module.set_update_hidden_states(True)
+                        training_stats.UpdateIterStats(net_outputs)         
+                        if idx==0:               
+                            loss = net_outputs['total_loss']
+                        else:
+                            if 'loss_cls' in net_outputs['losses'].keys() and 'loss_bbox' in net_outputs['losses'].keys():
+                                loss = net_outputs['losses']['loss_cls']+net_outputs['losses']['loss_bbox']
+                                for i in range(2,7):
+                                    if 'loss_rpn_cls_fpn%d'%(i) in net_outputs['losses'].keys():
+                                        loss = loss+net_outputs['losses']['loss_rpn_cls_fpn%d'%(i)]
+                            else:
+                                continue
+                        try:
+                            loss.backward()
+                        except:
+                            print(loss)
+                        optimizer.step()                        
+                        training_stats.IterToc()
+                        training_stats.LogIterStats(step, lr)
                         # online training early stop criteria.
                         stop_online_training = None
-                        if stop_online_training is None and (cfg.TRAIN.SC_CLS_LOSS_TH>0 or cfg.TRAIN.SC_BBOX_LOSS_TH>0 or cfg.TRAIN.SC_MASK_LOSS_TH):
-                            stop_online_training = True
-                        if cfg.TRAIN.SC_CLS_LOSS_TH>0 and net_outputs['losses']['loss_cls']>cfg.TRAIN.SC_CLS_LOSS_TH:                            
-                            stop_online_training = stop_online_training and False
-                        if cfg.TRAIN.SC_BBOX_LOSS_TH>0 and net_outputs['losses']['loss_bbox']>cfg.TRAIN.SC_BBOX_LOSS_TH:
-                            stop_online_training = stop_online_training and False
-                        if cfg.TRAIN.SC_MASK_LOSS_TH>0 and net_outputs['losses']['loss_mask']>cfg.TRAIN.SC_MASK_LOSS_TH:
-                            stop_online_training = stop_online_training and False
+                        if idx==0:
+                            if stop_online_training is None and (cfg.TRAIN.SC_CLS_LOSS_TH>0 or cfg.TRAIN.SC_BBOX_LOSS_TH>0 or cfg.TRAIN.SC_MASK_LOSS_TH>0 or cfg.TRAIN.SC_RPN_CLS_LOSS_TH>0):
+                                stop_online_training = True
+                            #if 'accuracy_cls' in net_outputs['metrics'].keys() and net_outputs['metrics']['accuracy_cls']>0.99:
+                              #  stop_online_training = True
+                            if cfg.TRAIN.SC_CLS_LOSS_TH>0 and 'loss_cls' in net_outputs['losses'].keys() and net_outputs['losses']['loss_cls']>cfg.TRAIN.SC_CLS_LOSS_TH:                            
+                                stop_online_training = stop_online_training and False
+                            if cfg.TRAIN.SC_BBOX_LOSS_TH>0 and 'loss_bbox' in net_outputs['losses'].keys() and net_outputs['losses']['loss_bbox']>cfg.TRAIN.SC_BBOX_LOSS_TH:
+                                stop_online_training = stop_online_training and False
+                            if cfg.TRAIN.SC_MASK_LOSS_TH>0 and 'loss_mask' in net_outputs['losses'].keys() and net_outputs['losses']['loss_mask']>cfg.TRAIN.SC_MASK_LOSS_TH:
+                                stop_online_training = stop_online_training and False
+                            if cfg.TRAIN.SC_RPN_CLS_LOSS_TH>0 and training_stats.smoothed_losses['loss_rpn_cls'].GetAverageValue() > cfg.TRAIN.SC_RPN_CLS_LOSS_TH:
+                                stop_online_training = stop_online_training and False
+                        else:
+                            '''
+                            if step==0 and 'accuracy_cls' in net_outputs['metrics'].keys():
+                                target_acc_cls = min(net_outputs['metrics']['accuracy_cls']+0.05, 0.95)
+                                print('target_acc_cls:', target_acc_cls)
+                                continue'''
+                            #if 'accuracy_cls' in net_outputs['metrics'].keys() and net_outputs['metrics']['accuracy_cls']>0.95:
+                              #  stop_online_training = True
+                                
+                            if stop_online_training is None and (cfg.TRAIN.SC_CLS_LOSS_TH>0 or cfg.TRAIN.SC_RPN_CLS_LOSS_TH>0):
+                                stop_online_training = True
+                            if cfg.TRAIN.SC_CLS_LOSS_TH>0 and 'loss_cls' in net_outputs['losses'].keys() and net_outputs['losses']['loss_cls']>cfg.TRAIN.SC_CLS_LOSS_TH:                            
+                                stop_online_training = stop_online_training and False
+                            if cfg.TRAIN.SC_RPN_CLS_LOSS_TH>0 and training_stats.smoothed_losses['loss_rpn_cls'].GetAverageValue() > cfg.TRAIN.SC_RPN_CLS_LOSS_TH:
+                                stop_online_training = stop_online_training and False
+                            #if cfg.TRAIN.SC_BBOX_LOSS_TH>0 and 'loss_bbox' in net_outputs['losses'].keys() and net_outputs['losses']['loss_bbox']>cfg.TRAIN.SC_BBOX_LOSS_TH:
+                              #  stop_online_training = stop_online_training and False
                         if stop_online_training is True:
                             break
-                        loss.backward()
-                        optimizer.step()
-                        training_stats.IterToc()
-                        training_stats.LogIterStats(step, lr)      
-                        maskRCNN.module.clean_hidden_states()
+                         
                     # ---- Training ends ----
                     # Save last checkpoint
                     #save_ckpt(output_dir, args, step, train_size, maskRCNN, optimizer)
@@ -495,13 +569,12 @@ def main():
                     if args.use_tfboard and not args.no_save:
                         tblogger.close()
                     # Clean hidden states as the hidden states are modified by multi-scale training.
-                    maskRCNN.module.clean_hidden_states()
                         
-            
+            #online prediction.
             if not osp.isdir(cur_output_dir):
               os.makedirs(cur_output_dir)
               assert(cur_output_dir)
-            maskRCNN.eval()
+            maskRCNN.eval()            
 
             im = db.get_image_cv2(idx)
             flo = None
@@ -511,17 +584,30 @@ def main():
                     flo = db.get_flow(idx)
                     assert flo is not None
             timers = defaultdict(Timer)
-            cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN, im, flo, timers=timers)
+
+            maskRCNN.module.set_hidden_states(last_hidden_states)
+            last_last_hidden_states = maskRCNN.module.clone_detach_hidden_states()
+            maskRCNN.module.set_update_hidden_states(True)
+            cls_boxes, cls_segms, cls_keyps = im_detect_all(maskRCNN, im, flo, timers=timers, prev_cls_boxes = prev_cls_boxes)
+            prev_cls_boxes = cls_boxes
+            maskRCNN.module.set_update_hidden_states(False)
+            last_hidden_states = maskRCNN.module.clone_detach_hidden_states()
 
             im_name = '%05d'%(idx)
             cls_mapper = [0]+[db.local_id_to_global_id(i, seq_idx) for i in range(1, cfg.MODEL.NUM_CLASSES)]
-            thresh = 0.1
-            vis_utils.viz_mask_result(im, im_name, cur_output_dir, cls_boxes, segms=cls_segms, thresh=thresh,box_alpha=0.3, dataset=db, ext='png', img_saver = davis_saver)
+            thresh = 0.25
+            #updata last_gt
+            last_gt, last_boxes, clr_mask = vis_utils.viz_mask_result(im, im_name, cur_output_dir, cls_boxes, segms=cls_segms, thresh=thresh,box_alpha=0.3, dataset=db, ext='png', img_saver = davis_saver, rvt_cls_threshold = cfg.TRAIN.ONLINE_TRAINING_CLS_THRESHOLD)
             print(osp.join(seq_name,im_name))
             im_name = '%03d-%03d'%(seq_idx,idx)
             cur_output_pdf_dir = osp.join(cur_output_dir,'pdf')
+            if True and clr_mask is not None:
+                show_im = np.array(1.0*im[:, :, ::-1]+0.4*clr_mask[:, :, ::-1]).clip(max=255).astype(dtype=np.uint8)
+                #cls_segms = None
+            else:
+                show_im = im[:, :, ::-1]  # BGR -> RGB for visualization
             vis_utils.vis_one_image(
-              im[:, :, ::-1],  # BGR -> RGB for visualization
+              show_im,
               im_name,
               cur_output_pdf_dir,
               cls_boxes,
